@@ -1,7 +1,7 @@
 package main
 
-import "fmt"
+import "github.com/ray-d-song/migo/cmd"
 
 func main() {
-	fmt.Println("mico")
+	cmd.Execute()
 }

@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/ray-d-song/migo/pkg/docker"
 	"github.com/spf13/cobra"
 )
 
@@ -26,19 +28,27 @@ Examples:
   mico pack -c container1,container2          # Pack specific containers only
   mico pack -c web,db -o production.zst       # Pack specific containers with custom name`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Print user input for debugging purposes
-
-		if outputPath != "" {
-			fmt.Printf("Output path: %s\n", outputPath)
-		} else {
-			fmt.Println("Output path: (default)")
+		// Set default output path if not provided
+		if outputPath == "" {
+			timestamp := time.Now().Format("20060102150405")
+			outputPath = fmt.Sprintf("mico-%s.zstd", timestamp)
 		}
+
+		// Print user input for debugging purposes
+		fmt.Printf("Output path: %s\n", outputPath)
 
 		if containers != "" {
 			containerList := strings.Split(containers, ",")
 			fmt.Printf("Containers to pack: %v\n", containerList)
 		} else {
 			fmt.Println("Containers to pack: (all running containers)")
+			s := docker.NewScanner()
+			containers, err := s.ScanRunningContainers(cmd.Context())
+			if err != nil {
+				fmt.Printf("Error scanning containers: %v\n", err)
+				return
+			}
+			fmt.Printf("Found %d running containers\n", len(containers))
 		}
 
 	},

@@ -10,8 +10,7 @@ test:
 
 # Preview/dry run - build and run with sample parameters
 preview: build
-	./mico pack --help
-	./mico pack -o sample.zst -c web,db,redis
+	./mico pack
 
 # Clean build artifacts
 clean:

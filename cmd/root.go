@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/ray-d-song/migo/pkg/docker"
+	"github.com/ray-d-song/migo/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -32,13 +33,19 @@ func Execute() {
 		os.Exit(1)
 	}
 
+	// Initialize temp directory cleanup
+	utils.InitTempCleanup()
+
+	// Register cleanup on exit
+	defer func() {
+		utils.Cleanup()
+		docker.CloseClient()
+	}()
+
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
 	}
-	
-	// Clean up Docker client on exit
-	docker.CloseClient()
 }
 
 func init() {

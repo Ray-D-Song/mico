@@ -6,12 +6,14 @@ import (
 	"time"
 
 	"github.com/ray-d-song/migo/pkg/docker"
+	"github.com/ray-d-song/migo/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
 var (
-	outputPath string
-	containers string
+	outputPath  string
+	containers  string
+	concurrent  int
 )
 
 // packCmd represents the pack command
@@ -26,7 +28,8 @@ Examples:
   mico pack                                    # Pack all containers with default name
   mico pack -o ./output/migration.zst         # Specify output path and filename
   mico pack -c container1,container2          # Pack specific containers only
-  mico pack -c web,db -o production.zst       # Pack specific containers with custom name`,
+  mico pack -c web,db -o production.zst       # Pack specific containers with custom name
+  mico pack -c web,db -j 4                     # Pack with 4 concurrent workers`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Set default output path if not provided
 		if outputPath == "" {
@@ -35,22 +38,21 @@ Examples:
 		}
 
 		// Print user input for debugging purposes
-		fmt.Printf("Output path: %s\n", outputPath)
+		utils.PrintI("Output path: %s\n", outputPath)
 
 		if containers != "" {
 			containerList := strings.Split(containers, ",")
-			fmt.Printf("Containers to pack: %v\n", containerList)
+			utils.PrintI("Containers to pack: %v\n", containerList)
 		} else {
-			fmt.Println("Containers to pack: (all running containers)")
+			utils.PrintI("Containers to pack: (all running containers)")
 			s := docker.NewScanner()
 			containers, err := s.ScanRunningContainers(cmd.Context())
 			if err != nil {
-				fmt.Printf("Error scanning containers: %v\n", err)
+				utils.PrintE("Error scanning containers: %v\n", err)
 				return
 			}
-			fmt.Printf("Found %d running containers\n", len(containers))
+			utils.PrintI("Found %d running containers\n", len(containers))
 		}
-
 	},
 }
 
@@ -61,4 +63,5 @@ func init() {
 	// Define flags for pack command
 	packCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Output path for migration package (e.g., ./migration.zst)")
 	packCmd.Flags().StringVarP(&containers, "containers", "c", "", "Comma-separated list of container names to pack (default: all running containers)")
+	packCmd.Flags().IntVarP(&concurrent, "concurrent", "j", 1, "Number of concurrent operations (default: 1)")
 }

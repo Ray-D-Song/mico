@@ -10,19 +10,18 @@ const (
 	reset  = "\033[0m"
 )
 
-func printI(f string, a ...any) {
+func PrintI(f string, a ...any) {
 	fmt.Printf(blue+f+reset, a...)
 }
 
-func printS(f string, a ...any) {
+func PrintS(f string, a ...any) {
 	fmt.Printf(green+f+reset, a...)
 }
 
-func printW(f string, a ...any) {
+func PrintW(f string, a ...any) {
 	fmt.Printf(yellow+f+reset, a...)
 }
 
-func printE(f string, a ...any) {
+func PrintE(f string, a ...any) {
 	fmt.Printf(red+f+reset, a...)
 }
-

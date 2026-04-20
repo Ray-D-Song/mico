@@ -6,23 +6,23 @@ import (
 	"github.com/docker/docker/api/types/container"
 )
 
-func AnalyzeComposeDeps(summary []container.Summary) DepGraph {
-	graph := DepGraph{
-		Services: make([]ServiceDep, 0, len(summary)),
+// AnalyzeComposeDeps analyzes compose dependencies from container summaries
+// Extracts project name, service names, and depends_on relationships from Docker labels
+// Returns DepAnalysis for unified dependency handling
+func AnalyzeComposeDeps(summary []container.Summary) DepAnalysis {
+	result := DepAnalysis{
+		Containers: make([]ContainerDepInfo, 0, len(summary)),
 	}
 
 	for _, c := range summary {
 		serviceName := c.Labels["com.docker.compose.service"]
 		if serviceName == "" {
-			serviceName = c.Names[0]
-			if len(serviceName) > 0 && serviceName[0] == '/' {
-				serviceName = serviceName[1:]
-			}
+			serviceName = cleanName(c.Names)
 		}
 
 		project := c.Labels["com.docker.compose.project"]
-		if graph.Project == "" && project != "" {
-			graph.Project = project
+		if result.Project == "" && project != "" {
+			result.Project = project
 		}
 
 		depsStr := c.Labels["com.docker.compose.depends_on"]
@@ -31,14 +31,17 @@ func AnalyzeComposeDeps(summary []container.Summary) DepGraph {
 			deps = parseDependsOn(depsStr)
 		}
 
-		dep := ServiceDep{
-			ServiceName: serviceName,
-			DependsOn:   deps,
+		info := ContainerDepInfo{
+			ContainerID:   c.ID,
+			ContainerName: cleanName(c.Names),
+			ServiceName:  serviceName,
+			Project:     project,
+			DependsOn:    deps,
 		}
-		graph.Services = append(graph.Services, dep)
+		result.Containers = append(result.Containers, info)
 	}
 
-	return graph
+	return result
 }
 
 func parseDependsOn(s string) []string {
@@ -52,4 +55,3 @@ func parseDependsOn(s string) []string {
 	}
 	return result
 }
-

@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/ray-d-song/migo/pkg/utils"
 )
 
 type Inspector struct {
@@ -19,18 +20,17 @@ func NewInspector(workDir string) *Inspector {
 	return &Inspector{workDir: workDir}
 }
 
-func (i *Inspector) InspectOne(ctx context.Context, name string) (*container.Config, error) {
+func (i *Inspector) InspectOne(ctx context.Context, containerName string) (*container.Config, error) {
 	client := GetClient()
-	resp, err := client.ContainerInspect(ctx, name)
+	resp, err := client.ContainerInspect(ctx, containerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to inspect container %s: %w", name, err)
+		return nil, fmt.Errorf("failed to inspect container %s: %w", containerName, err)
 	}
 
-	configPath := filepath.Join(i.workDir, "configs", name+".json")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		return nil, fmt.Errorf("failed to create config dir: %w", err)
-	}
+	servicePath := filepath.Join(i.workDir, containerName)
+	utils.EnsureDir(servicePath + "/config")
 
+	configPath := filepath.Join(servicePath, "config", "config.json")
 	data, err := json.MarshalIndent(resp.Config, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
@@ -53,9 +53,9 @@ func (i *Inspector) InspectBatch(ctx context.Context, names []string, concurrent
 	}
 
 	type result struct {
-		name string
-		cfg  *container.Config
-		err  error
+		containerName string
+		cfg          *container.Config
+		err          error
 	}
 
 	sem := make(chan struct{}, concurrent)
@@ -70,7 +70,7 @@ func (i *Inspector) InspectBatch(ctx context.Context, names []string, concurrent
 			defer func() { <-sem }()
 
 			cfg, err := i.InspectOne(ctx, n)
-			results <- result{name: n, cfg: cfg, err: err}
+			results <- result{containerName: n, cfg: cfg, err: err}
 		}(name)
 	}
 
@@ -82,9 +82,9 @@ func (i *Inspector) InspectBatch(ctx context.Context, names []string, concurrent
 	configs := make(map[string]*container.Config)
 	for r := range results {
 		if r.err != nil {
-			return nil, fmt.Errorf("failed to inspect container %s: %w", r.name, r.err)
+			return nil, fmt.Errorf("failed to inspect container %s: %w", r.containerName, r.err)
 		}
-		configs[r.name] = r.cfg
+		configs[r.containerName] = r.cfg
 	}
 
 	return configs, nil

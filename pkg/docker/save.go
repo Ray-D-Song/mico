@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/ray-d-song/migo/pkg/utils"
 )
 
 type ImageSaver struct {
@@ -17,19 +19,18 @@ func NewImageSaver(workDir string) *ImageSaver {
 	return &ImageSaver{workDir: workDir}
 }
 
-func (s *ImageSaver) SaveOne(ctx context.Context, name string) error {
+func (s *ImageSaver) SaveOne(ctx context.Context, containerName, imageRef string) error {
 	client := GetClient()
-	reader, err := client.ImageSave(ctx, []string{name})
+	reader, err := client.ImageSave(ctx, []string{imageRef})
 	if err != nil {
-		return fmt.Errorf("failed to save image %s: %w", name, err)
+		return fmt.Errorf("failed to save image %s: %w", imageRef, err)
 	}
 	defer reader.Close()
 
-	imagePath := filepath.Join(s.workDir, "images", name+".tar")
-	if err := os.MkdirAll(filepath.Dir(imagePath), 0755); err != nil {
-		return fmt.Errorf("failed to create image dir: %w", err)
-	}
+	servicePath := filepath.Join(s.workDir, containerName)
+	utils.EnsureDir(servicePath + "/image")
 
+	imagePath := filepath.Join(servicePath, "image", "image.tar")
 	f, err := os.Create(imagePath)
 	if err != nil {
 		return fmt.Errorf("failed to create image file: %w", err)
@@ -44,8 +45,11 @@ func (s *ImageSaver) SaveOne(ctx context.Context, name string) error {
 	return nil
 }
 
-func (s *ImageSaver) SaveBatch(ctx context.Context, names []string, concurrent int) error {
-	if len(names) == 0 {
+func (s *ImageSaver) SaveBatch(ctx context.Context, items []struct {
+	ContainerName string
+	ImageRef     string
+}, concurrent int) error {
+	if len(items) == 0 {
 		return nil
 	}
 
@@ -54,24 +58,24 @@ func (s *ImageSaver) SaveBatch(ctx context.Context, names []string, concurrent i
 	}
 
 	type result struct {
-		name string
-		err  error
+		containerName string
+		err          error
 	}
 
 	sem := make(chan struct{}, concurrent)
-	results := make(chan result, len(names))
+	results := make(chan result, len(items))
 	var wg sync.WaitGroup
 
-	for _, name := range names {
+	for _, item := range items {
 		wg.Add(1)
-		go func(n string) {
+		go func(cName, imgRef string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			err := s.SaveOne(ctx, n)
-			results <- result{name: n, err: err}
-		}(name)
+			err := s.SaveOne(ctx, cName, imgRef)
+			results <- result{containerName: cName, err: err}
+		}(item.ContainerName, item.ImageRef)
 	}
 
 	go func() {
@@ -81,10 +85,9 @@ func (s *ImageSaver) SaveBatch(ctx context.Context, names []string, concurrent i
 
 	for r := range results {
 		if r.err != nil {
-			return fmt.Errorf("failed to save image %s: %w", r.name, r.err)
+			return fmt.Errorf("failed to save image for %s: %w", r.containerName, r.err)
 		}
 	}
 
 	return nil
 }
-

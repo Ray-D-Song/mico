@@ -62,11 +62,15 @@ func InitTempCleanup() {
 
 func CreateWorkDir(prefix string) string {
 	dir := MustCreateTempDir(prefix + "-")
-	EnsureDir(dir + "/images")
-	EnsureDir(dir + "/configs")
-	EnsureDir(dir + "/volumes")
-	EnsureDir(dir + "/services")
 	return dir
+}
+
+func CreateServiceDir(workDir, serviceName string) string {
+	servicePath := filepath.Join(workDir, serviceName)
+	EnsureDir(servicePath + "/image")
+	EnsureDir(servicePath + "/config")
+	EnsureDir(servicePath + "/volume")
+	return servicePath
 }
 
 func FileExists(path string) bool {

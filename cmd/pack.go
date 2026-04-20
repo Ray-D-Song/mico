@@ -44,11 +44,11 @@ Examples:
 			containerList := strings.Split(containers, ",")
 			utils.PrintI("Containers to pack: %v\n", containerList)
 		} else {
-			utils.PrintI("Containers to pack: (all running containers)")
+			utils.PrintI("Containers to pack: (all running containers)\n")
 			s := docker.NewScanner()
 			containers, err := s.ScanRunningContainers(cmd.Context())
 			if err != nil {
-				utils.PrintE("Error scanning containers: %v\n", err)
+				utils.PrintErrMsg(utils.ErrContainerScan, err)
 				return
 			}
 			utils.PrintI("Found %d running containers\n", len(containers))

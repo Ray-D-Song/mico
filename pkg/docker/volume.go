@@ -33,6 +33,7 @@ func (v *VolumeBackup) BackupOne(ctx context.Context, containerName string) erro
 
 	servicePath := filepath.Join(v.workDir, containerName)
 	utils.EnsureDir(servicePath + "/volume")
+	utils.EnsureDir(servicePath + "/bind")
 
 	for _, mnt := range resp.Mounts {
 		switch mnt.Type {
@@ -80,12 +81,26 @@ func (v *VolumeBackup) backupVolume(ctx context.Context, sourcePath, destPath st
 }
 
 func (v *VolumeBackup) backupBind(ctx context.Context, sourcePath, destPath string) error {
-	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+	info, err := os.Stat(sourcePath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to stat bind path: %w", err)
+	}
+	if !info.IsDir() {
 		return nil
 	}
 
+	if err := utils.EnsureFile(destPath); err != nil {
+		return fmt.Errorf("failed to create bind backup dir: %w", err)
+	}
+
 	cmd := exec.Command("tar", "-cf", destPath, "-C", sourcePath, ".")
-	return cmd.Run()
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("tar failed: %w, output: %s", err, string(output))
+	}
+	return nil
 }
 
 func (v *VolumeBackup) BackupBatch(ctx context.Context, names []string, concurrent int) error {

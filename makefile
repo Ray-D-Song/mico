@@ -2,7 +2,7 @@
 
 # Build the binary
 build:
-	go build -v -o mico
+	go build -o mico .
 
 # Run unit tests
 test:

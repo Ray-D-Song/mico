@@ -1,2 +1,8 @@
 .DS_Store
 mico
+
+migration.zst
+migration.zst.sha256
+
+scripts/data
+scripts/html

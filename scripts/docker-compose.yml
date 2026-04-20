@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: mico-db
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: testdb
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./data:/data
+    networks:
+      - mico-net
+
+  web:
+    image: nginx:alpine
+    container_name: mico-web
+    depends_on:
+      - db
+    volumes:
+      - ./html:/usr/share/nginx/html:ro
+      - web-logs:/var/log/nginx
+    ports:
+      - "8080:80"
+    networks:
+      - mico-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: mico-redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - mico-net
+
+networks:
+  mico-net:
+    driver: bridge
+
+volumes:
+  db-data:
+  web-logs:
+  redis-data:

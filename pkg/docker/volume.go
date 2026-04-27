@@ -66,17 +66,22 @@ func escapePath(path string) string {
 }
 
 func (v *VolumeBackup) backupVolume(ctx context.Context, sourcePath, destPath string) error {
-	f, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("failed to create volume file: %w", err)
+	_, err := os.Stat(sourcePath)
+	if os.IsNotExist(err) {
+		return nil
 	}
-	defer f.Close()
-
-	_, err = f.Write([]byte{})
 	if err != nil {
-		return fmt.Errorf("failed to write volume file: %w", err)
+		return fmt.Errorf("failed to stat volume path: %w", err)
 	}
 
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return fmt.Errorf("failed to create volume dir: %w", err)
+	}
+
+	cmd := exec.Command("tar", "-cf", destPath, "-C", sourcePath, ".")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("tar failed: %w, output: %s", err, string(output))
+	}
 	return nil
 }
 

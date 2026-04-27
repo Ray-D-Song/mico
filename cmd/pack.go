@@ -16,7 +16,6 @@ import (
 var (
 	outputPath  string
 	containers string
-	concurrent int
 )
 
 var packCmd = &cobra.Command{

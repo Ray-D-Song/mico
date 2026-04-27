@@ -461,9 +461,9 @@ func createContainers(workDir string) error {
 		}
 
 		var cfg struct {
-			Image      string   `json:"Image"`
+			Image       string   `json:"Image"`
 			Cmd        []string `json:"Cmd"`
-			Env       []string `json:"Env"`
+			Env        []string `json:"Env"`
 			ExposedPorts map[string]interface{} `json:"ExposedPorts"`
 		}
 		if err := json.Unmarshal(cfgData, &cfg); err != nil {
@@ -471,12 +471,15 @@ func createContainers(workDir string) error {
 		}
 
 		var host struct {
-			NetworkMode string `json:"NetworkMode"`
-			Binds      []string `json:"Binds"`
+			NetworkMode   string `json:"NetworkMode"`
+			Binds        []string `json:"Binds"`
 			PortBindings map[string][]struct {
 				HostIP   string `json:"HostIp"`
 				HostPort string `json:"HostPort"`
 			} `json:"PortBindings"`
+			RestartPolicy struct {
+				Name string `json:"Name"`
+			} `json:"RestartPolicy"`
 		}
 		if err := json.Unmarshal(hostData, &host); err != nil {
 			return fmt.Errorf("failed to parse host config: %w", err)
@@ -493,12 +496,30 @@ func createContainers(workDir string) error {
 			}
 		}
 
+		var portMappings []string
+		for containerPort, bindings := range host.PortBindings {
+			for _, binding := range bindings {
+				if binding.HostPort != "" && binding.HostPort != "0" {
+					portMappings = append(portMappings, binding.HostPort+":"+containerPort)
+				}
+			}
+		}
+
 		runArgs := []string{"run", "-d", "--name", svc.Name}
 		for _, bind := range binds {
 			runArgs = append(runArgs, "-v", bind)
 		}
+		for _, port := range portMappings {
+			runArgs = append(runArgs, "-p", port)
+		}
+		for _, env := range cfg.Env {
+			runArgs = append(runArgs, "-e", env)
+		}
 		if host.NetworkMode != "" && host.NetworkMode != "default" {
 			runArgs = append(runArgs, "--net", host.NetworkMode)
+		}
+		if host.RestartPolicy.Name != "" && host.RestartPolicy.Name != "no" {
+			runArgs = append(runArgs, "--restart", host.RestartPolicy.Name)
 		}
 		runArgs = append(runArgs, cfg.Image)
 		if len(cfg.Cmd) > 0 {

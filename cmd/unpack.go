@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/ray-d-song/migo/pkg/docker"
@@ -81,6 +83,13 @@ Examples:
 		}
 		os.Remove(tarPath)
 		utils.PrintS("Extracted\n")
+
+		utils.PrintI("Checking port conflicts...\n")
+		if err := checkPortsConflict(workDir); err != nil {
+			utils.PrintErrMsg(utils.ErrVerifyFailed, err)
+			return
+		}
+		utils.PrintS("Port check passed\n")
 
 		utils.PrintI("Loading images...\n")
 		if err := loadImages(workDir); err != nil {
@@ -297,6 +306,275 @@ func dockerRemove(name string) {
 	cmd.Run()
 }
 
-func createContainers(workDir string) error {
+func checkPortsConflict(workDir string) error {
+	manifestPath := filepath.Join(workDir, "manifest.json")
+	if !utils.FileExists(manifestPath) {
+		return nil
+	}
+
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to read manifest: %w", err)
+	}
+
+	var manifest PackageManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	portSet := make(map[string]bool)
+	for _, svc := range manifest.Services {
+		for _, port := range svc.Ports {
+			port = strings.Split(port, "/")[0]
+			if port != "" && port != "0" {
+				portSet[port] = true
+			}
+		}
+	}
+
+	for port := range portSet {
+		ln, err := net.Listen("tcp", ":"+port)
+		if err != nil {
+			return fmt.Errorf("port %s is already in use", port)
+		}
+		ln.Close()
+	}
+
 	return nil
+}
+
+func restoreNetworks(workDir string) error {
+	manifestPath := filepath.Join(workDir, "manifest.json")
+	if !utils.FileExists(manifestPath) {
+		return nil
+	}
+
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to read manifest: %w", err)
+	}
+
+	var manifest PackageManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	networkSet := make(map[string]bool)
+	for _, networkID := range manifest.Networks {
+		networkSet[networkID] = true
+	}
+
+	for networkID := range networkSet {
+		cmd := exec.Command("docker", "network", "inspect", networkID)
+		if err := cmd.Run(); err != nil {
+			cmd = exec.Command("docker", "network", "create", networkID)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				fmt.Printf("network create output: %s\n", string(output))
+			}
+		}
+		utils.PrintS("Network ready: %s\n", networkID[:12])
+	}
+
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		networkPath := filepath.Join(workDir, entry.Name(), "config", "network.json")
+		if !utils.FileExists(networkPath) {
+			continue
+		}
+
+		data, err := os.ReadFile(networkPath)
+		if err != nil {
+			continue
+		}
+
+		var networkSettings struct {
+			Networks map[string]interface{} `json:"Networks"`
+		}
+		if err := json.Unmarshal(data, &networkSettings); err != nil {
+			continue
+		}
+
+		for networkName := range networkSettings.Networks {
+			cmd := exec.Command("docker", "network", "inspect", networkName)
+			if err := cmd.Run(); err != nil {
+				cmd = exec.Command("docker", "network", "create", networkName)
+				if output, err := cmd.CombinedOutput(); err != nil {
+					fmt.Printf("network create output: %s\n", string(output))
+				}
+				utils.PrintS("Network created: %s\n", networkName)
+			}
+		}
+	}
+
+	return nil
+}
+
+func createContainers(workDir string) error {
+	manifestPath := filepath.Join(workDir, "manifest.json")
+	if !utils.FileExists(manifestPath) {
+		return fmt.Errorf("manifest not found")
+	}
+
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to read manifest: %w", err)
+	}
+
+	var manifest PackageManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	if err := restoreNetworks(workDir); err != nil {
+		return fmt.Errorf("failed to restore networks: %w", err)
+	}
+
+	sortedServices := topologicalSortCreate(manifest.Services)
+	utils.PrintS("Services start order: %v\n", getStartOrderNames(sortedServices))
+
+	for _, svc := range sortedServices {
+		containerPath := filepath.Join(workDir, svc.Name)
+		if !utils.FileExists(containerPath) {
+			continue
+		}
+
+		configPath := filepath.Join(containerPath, "config", "config.json")
+		hostPath := filepath.Join(containerPath, "config", "host.json")
+		if !utils.FileExists(configPath) || !utils.FileExists(hostPath) {
+			continue
+		}
+
+		cfgData, err := os.ReadFile(configPath)
+		if err != nil {
+			return fmt.Errorf("failed to read config: %w", err)
+		}
+		hostData, err := os.ReadFile(hostPath)
+		if err != nil {
+			return fmt.Errorf("failed to read host config: %w", err)
+		}
+
+		var cfg struct {
+			Image      string   `json:"Image"`
+			Cmd        []string `json:"Cmd"`
+			Env       []string `json:"Env"`
+			ExposedPorts map[string]interface{} `json:"ExposedPorts"`
+		}
+		if err := json.Unmarshal(cfgData, &cfg); err != nil {
+			return fmt.Errorf("failed to parse config: %w", err)
+		}
+
+		var host struct {
+			NetworkMode string `json:"NetworkMode"`
+			Binds      []string `json:"Binds"`
+			PortBindings map[string][]struct {
+				HostIP   string `json:"HostIp"`
+				HostPort string `json:"HostPort"`
+			} `json:"PortBindings"`
+		}
+		if err := json.Unmarshal(hostData, &host); err != nil {
+			return fmt.Errorf("failed to parse host config: %w", err)
+		}
+
+		var binds []string
+		for _, bind := range host.Binds {
+			parts := strings.Split(bind, ":")
+			if len(parts) >= 2 {
+				volumeName := generateVolumeName(svc.Name, parts[1])
+				binds = append(binds, volumeName+":"+strings.Join(parts[1:], ":"))
+			} else {
+				binds = append(binds, bind)
+			}
+		}
+
+		runArgs := []string{"run", "-d", "--name", svc.Name}
+		for _, bind := range binds {
+			runArgs = append(runArgs, "-v", bind)
+		}
+		if host.NetworkMode != "" && host.NetworkMode != "default" {
+			runArgs = append(runArgs, "--net", host.NetworkMode)
+		}
+		runArgs = append(runArgs, cfg.Image)
+		if len(cfg.Cmd) > 0 {
+			runArgs = append(runArgs, cfg.Cmd...)
+		}
+
+		cmd := exec.Command("docker", runArgs...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			utils.PrintW("Container %s: %s\n", svc.Name, string(output))
+			continue
+		}
+
+		utils.PrintS("Container created: %s\n", svc.Name)
+	}
+
+	return nil
+}
+
+func topologicalSortCreate(services []Service) []Service {
+	if len(services) <= 1 {
+		return services
+	}
+
+	inDegree := make(map[string]int)
+	graph := make(map[string][]string)
+	allNames := make(map[string]bool)
+
+	for _, s := range services {
+		allNames[s.Name] = true
+		inDegree[s.Name] = 0
+	}
+
+	for _, s := range services {
+		for _, dep := range s.DependsOn {
+			graph[dep] = append(graph[dep], s.Name)
+			inDegree[s.Name]++
+		}
+	}
+
+	queue := make([]string, 0)
+	for name, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, name)
+		}
+	}
+
+	result := make([]Service, 0, len(services))
+	order := 0
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		for _, s := range services {
+			if s.Name == current {
+				s.StartOrder = order
+				result = append(result, s)
+				order++
+				break
+			}
+		}
+
+		for _, next := range graph[current] {
+			inDegree[next]--
+			if inDegree[next] == 0 {
+				queue = append(queue, next)
+			}
+		}
+	}
+
+	return result
+}
+
+func getStartOrderNames(services []Service) []string {
+	names := make([]string, len(services))
+	for i, s := range services {
+		names[i] = s.Name
+	}
+	return names
 }

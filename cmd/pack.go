@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +15,22 @@ import (
 	"github.com/ray-d-song/migo/pkg/utils"
 	"github.com/spf13/cobra"
 )
+
+type Service struct {
+	Name        string   `json:"name"`
+	Image      string   `json:"image"`
+	DependsOn  []string `json:"depends_on"`
+	StartOrder int      `json:"start_order"`
+	Ports      []string `json:"ports"`
+}
+
+type PackageManifest struct {
+	Version    string    `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	Project   string    `json:"project"`
+	Networks  []string  `json:"networks"`
+	Services  []Service `json:"services"`
+}
 
 var (
 	outputPath  string
@@ -148,6 +167,34 @@ Examples:
 				utils.PrintErrMsg(utils.ErrContainerInspect, err)
 				return
 			}
+			if err := inspector.SaveHostConfig(ctx, name); err != nil {
+				utils.PrintErrMsg(utils.ErrContainerInspect, err)
+				return
+			}
+			if err := inspector.SaveNetworkSettings(ctx, name); err != nil {
+				utils.PrintErrMsg(utils.ErrContainerInspect, err)
+				return
+			}
+		}
+
+		networks := collectNetworks(containerList)
+		services := buildServices(depGraph, containerList)
+		manifest := PackageManifest{
+			Version:    "1.0",
+			CreatedAt: time.Now(),
+			Project:   depGraph.Project,
+			Networks:  networks,
+			Services:  services,
+		}
+		manifestPath := filepath.Join(workDir, "manifest.json")
+		data, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			utils.PrintErrMsg(utils.ErrPackCreate, err)
+			return
+		}
+		if err := os.WriteFile(manifestPath, data, 0644); err != nil {
+			utils.PrintErrMsg(utils.ErrPackCreate, err)
+			return
 		}
 
 		utils.PrintS("Saved images, configs, and volumes\n")
@@ -177,4 +224,117 @@ func init() {
 	packCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Output path for migration package (e.g., ./migration.zst)")
 	packCmd.Flags().StringVarP(&containers, "containers", "c", "", "Comma-separated list of container names to pack (default: all running containers)")
 	packCmd.Flags().IntVarP(&concurrent, "concurrent", "j", 1, "Number of concurrent operations (default: 1)")
+}
+
+func collectNetworks(containers []container.Summary) []string {
+	networkSet := make(map[string]bool)
+	for _, c := range containers {
+		for _, network := range c.NetworkSettings.Networks {
+			if network != nil {
+				networkSet[network.NetworkID] = true
+			}
+		}
+	}
+	networks := make([]string, 0, len(networkSet))
+	for networkID := range networkSet {
+		networks = append(networks, networkID)
+	}
+	return networks
+}
+
+func buildServices(depGraph deps.DepAnalysis, containers []container.Summary) []Service {
+	services := make([]Service, 0, len(containers))
+	containerMap := make(map[string]container.Summary)
+	for _, c := range containers {
+		name := c.Names[0]
+		if len(name) > 0 && name[0] == '/' {
+			name = name[1:]
+		}
+		containerMap[name] = c
+	}
+
+	for _, info := range depGraph.Containers {
+		var ports []string
+		c, ok := containerMap[info.ContainerName]
+		if ok {
+			for _, port := range c.Ports {
+				if port.PublicPort > 0 {
+					ports = append(ports, fmt.Sprintf("%d/%s", port.PublicPort, port.Type))
+				}
+			}
+		}
+
+		services = append(services, Service{
+			Name:        info.ServiceName,
+			Image:      getImageFromContainer(info.ContainerName),
+			DependsOn:  info.DependsOn,
+			StartOrder: 0,
+			Ports:     ports,
+		})
+	}
+
+	sorted := topologicalSort(services)
+	return sorted
+}
+
+func getImageFromContainer(containerName string) string {
+	client := docker.GetClient()
+	resp, err := client.ContainerInspect(nil, containerName)
+	if err != nil {
+		return ""
+	}
+	return resp.Config.Image
+}
+
+func topologicalSort(services []Service) []Service {
+	if len(services) <= 1 {
+		return services
+	}
+
+	inDegree := make(map[string]int)
+	graph := make(map[string][]string)
+	allNames := make(map[string]bool)
+
+	for _, s := range services {
+		allNames[s.Name] = true
+		if _, ok := inDegree[s.Name]; !ok {
+			inDegree[s.Name] = 0
+		}
+		for _, dep := range s.DependsOn {
+			graph[dep] = append(graph[dep], s.Name)
+			inDegree[s.Name]++
+		}
+	}
+
+	queue := make([]string, 0)
+	for name, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, name)
+		}
+	}
+
+	result := make([]Service, 0, len(services))
+	order := 0
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		for _, s := range services {
+			if s.Name == current {
+				s.StartOrder = order
+				result = append(result, s)
+				order++
+				break
+			}
+		}
+
+		for _, next := range graph[current] {
+			inDegree[next]--
+			if inDegree[next] == 0 {
+				queue = append(queue, next)
+			}
+		}
+	}
+
+	return result
 }

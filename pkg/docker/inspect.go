@@ -93,6 +93,52 @@ func (i *Inspector) SaveMounts(ctx context.Context, containerName string) (*Cont
 	return containerMounts, nil
 }
 
+func (i *Inspector) SaveHostConfig(ctx context.Context, containerName string) error {
+	client := GetClient()
+	resp, err := client.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container %s: %w", containerName, err)
+	}
+
+	servicePath := filepath.Join(i.workDir, containerName)
+	utils.EnsureDir(servicePath + "/config")
+
+	hostPath := filepath.Join(servicePath, "config", "host.json")
+	data, err := json.MarshalIndent(resp.HostConfig, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal host config: %w", err)
+	}
+
+	if err := os.WriteFile(hostPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write host config file: %w", err)
+	}
+
+	return nil
+}
+
+func (i *Inspector) SaveNetworkSettings(ctx context.Context, containerName string) error {
+	client := GetClient()
+	resp, err := client.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container %s: %w", containerName, err)
+	}
+
+	servicePath := filepath.Join(i.workDir, containerName)
+	utils.EnsureDir(servicePath + "/config")
+
+	networkPath := filepath.Join(servicePath, "config", "network.json")
+	data, err := json.MarshalIndent(resp.NetworkSettings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal network settings: %w", err)
+	}
+
+	if err := os.WriteFile(networkPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write network settings file: %w", err)
+	}
+
+	return nil
+}
+
 func (i *Inspector) InspectBatch(ctx context.Context, names []string, concurrent int) (map[string]*container.Config, error) {
 	if len(names) == 0 {
 		return nil, nil

@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"archive/tar"
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 
@@ -191,7 +194,107 @@ func loadImages(workDir string) error {
 }
 
 func restoreVolumes(workDir string) error {
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		return fmt.Errorf("failed to read work dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		containerName := entry.Name()
+		mountsPath := filepath.Join(workDir, containerName, "config", "mounts.json")
+
+		if !utils.FileExists(mountsPath) {
+			continue
+		}
+
+		data, err := os.ReadFile(mountsPath)
+		if err != nil {
+			return fmt.Errorf("failed to read mounts.json: %w", err)
+		}
+
+		var containerMounts docker.ContainerMounts
+		if err := json.Unmarshal(data, &containerMounts); err != nil {
+			return fmt.Errorf("failed to parse mounts.json: %w", err)
+		}
+
+		for _, mnt := range containerMounts.Mounts {
+			if mnt.Type != "bind" {
+				continue
+			}
+
+			volumeName := generateVolumeName(containerName, mnt.Destination)
+			bindTarPath := filepath.Join(workDir, containerName, "bind", escapePath(mnt.Destination)+".tar")
+
+			if err := restoreBindVolume(volumeName, mnt.Destination, bindTarPath); err != nil {
+				return fmt.Errorf("failed to restore volume for %s: %w", mnt.Destination, err)
+			}
+
+			utils.PrintS("Restored volume: %s\n", volumeName)
+		}
+	}
+
 	return nil
+}
+
+func generateVolumeName(containerName, destPath string) string {
+	hash := quickHash(containerName + destPath)
+	return fmt.Sprintf("mico_%s_%s", containerName, hash[:8])
+}
+
+func quickHash(s string) string {
+	h := 0
+	for i, c := range s {
+		h = h*31 + int(c) + i
+	}
+	return fmt.Sprintf("%x", h)
+}
+
+func escapePath(path string) string {
+	result := ""
+	for _, c := range path {
+		if c == '/' || c == ':' {
+			result += "_"
+		} else {
+			result += string(c)
+		}
+	}
+	return result
+}
+
+func restoreBindVolume(volumeName, containerDestPath, tarPath string) error {
+	if !utils.FileExists(tarPath) {
+		return nil
+	}
+
+	cmd := exec.Command("docker", "volume", "create", volumeName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		fmt.Printf("volume create output: %s\n", string(output))
+	}
+
+	tmpContainer := "mico-restore-" + quickHash(tarPath)[:8]
+
+	cmd = exec.Command("docker", "run", "-d", "--name", tmpContainer, "-v", volumeName+":/data", "alpine:latest", "sleep", "60")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create temp container: %w, output: %s", err, string(output))
+	}
+
+	cmd = exec.Command("docker", "cp", tarPath, tmpContainer+":/data/.")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		dockerRemove(tmpContainer)
+		return fmt.Errorf("failed to copy to volume: %w, output: %s", err, string(output))
+	}
+
+	dockerRemove(tmpContainer)
+	return nil
+}
+
+func dockerRemove(name string) {
+	cmd := exec.Command("docker", "rm", "-f", name)
+	cmd.Run()
 }
 
 func createContainers(workDir string) error {

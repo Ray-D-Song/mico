@@ -16,6 +16,18 @@ type Inspector struct {
 	workDir string
 }
 
+type MountInfo struct {
+	Type        string `json:"type"`
+	Source     string `json:"source"`
+	Destination string `json:"destination"`
+	ReadOnly   bool   `json:"read_only"`
+}
+
+type ContainerMounts struct {
+	ContainerName string     `json:"container_name"`
+	Mounts       []MountInfo `json:"mounts"`
+}
+
 func NewInspector(workDir string) *Inspector {
 	return &Inspector{workDir: workDir}
 }
@@ -41,6 +53,44 @@ func (i *Inspector) InspectOne(ctx context.Context, containerName string) (*cont
 	}
 
 	return resp.Config, nil
+}
+
+func (i *Inspector) SaveMounts(ctx context.Context, containerName string) (*ContainerMounts, error) {
+	client := GetClient()
+	resp, err := client.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container %s: %w", containerName, err)
+	}
+
+	mounts := make([]MountInfo, 0, len(resp.Mounts))
+	for _, m := range resp.Mounts {
+		mounts = append(mounts, MountInfo{
+			Type:        string(m.Type),
+			Source:     m.Source,
+			Destination: m.Destination,
+			ReadOnly:   m.RW == false,
+		})
+	}
+
+	containerMounts := &ContainerMounts{
+		ContainerName: containerName,
+		Mounts:       mounts,
+	}
+
+	servicePath := filepath.Join(i.workDir, containerName)
+	utils.EnsureDir(servicePath + "/config")
+
+	mountsPath := filepath.Join(servicePath, "config", "mounts.json")
+	data, err := json.MarshalIndent(containerMounts, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal mounts: %w", err)
+	}
+
+	if err := os.WriteFile(mountsPath, data, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write mounts file: %w", err)
+	}
+
+	return containerMounts, nil
 }
 
 func (i *Inspector) InspectBatch(ctx context.Context, names []string, concurrent int) (map[string]*container.Config, error) {

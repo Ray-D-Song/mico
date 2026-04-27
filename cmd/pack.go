@@ -142,6 +142,14 @@ Examples:
 			return
 		}
 
+		utils.PrintI("Saving mount information...\n")
+		for _, name := range containerNames {
+			if _, err := inspector.SaveMounts(ctx, name); err != nil {
+				utils.PrintErrMsg(utils.ErrContainerInspect, err)
+				return
+			}
+		}
+
 		utils.PrintS("Saved images, configs, and volumes\n")
 
 		utils.PrintI("Compressing...\n")

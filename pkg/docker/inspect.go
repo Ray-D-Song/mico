@@ -9,23 +9,12 @@ import (
 	"sync"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/ray-d-song/migo/pkg/core"
 	"github.com/ray-d-song/migo/pkg/utils"
 )
 
 type Inspector struct {
 	workDir string
-}
-
-type MountInfo struct {
-	Type        string `json:"type"`
-	Source     string `json:"source"`
-	Destination string `json:"destination"`
-	ReadOnly   bool   `json:"read_only"`
-}
-
-type ContainerMounts struct {
-	ContainerName string     `json:"container_name"`
-	Mounts       []MountInfo `json:"mounts"`
 }
 
 func NewInspector(workDir string) *Inspector {
@@ -55,16 +44,16 @@ func (i *Inspector) InspectOne(ctx context.Context, containerName string) (*cont
 	return resp.Config, nil
 }
 
-func (i *Inspector) SaveMounts(ctx context.Context, containerName string) (*ContainerMounts, error) {
+func (i *Inspector) SaveMounts(ctx context.Context, containerName string) (*core.ContainerMounts, error) {
 	client := GetClient()
 	resp, err := client.ContainerInspect(ctx, containerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container %s: %w", containerName, err)
 	}
 
-	mounts := make([]MountInfo, 0, len(resp.Mounts))
+	mounts := make([]core.MountInfo, 0, len(resp.Mounts))
 	for _, m := range resp.Mounts {
-		mounts = append(mounts, MountInfo{
+		mounts = append(mounts, core.MountInfo{
 			Type:        string(m.Type),
 			Source:     m.Source,
 			Destination: m.Destination,
@@ -72,7 +61,7 @@ func (i *Inspector) SaveMounts(ctx context.Context, containerName string) (*Cont
 		})
 	}
 
-	containerMounts := &ContainerMounts{
+	containerMounts := &core.ContainerMounts{
 		ContainerName: containerName,
 		Mounts:       mounts,
 	}

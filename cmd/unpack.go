@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ray-d-song/migo/pkg/core"
 	"github.com/ray-d-song/migo/pkg/docker"
 	"github.com/ray-d-song/migo/pkg/utils"
 	"github.com/spf13/cobra"
@@ -225,7 +226,7 @@ func restoreVolumes(workDir string) error {
 			return fmt.Errorf("failed to read mounts.json: %w", err)
 		}
 
-		var containerMounts docker.ContainerMounts
+		var containerMounts core.ContainerMounts
 		if err := json.Unmarshal(data, &containerMounts); err != nil {
 			return fmt.Errorf("failed to parse mounts.json: %w", err)
 		}
@@ -317,7 +318,7 @@ func checkPortsConflict(workDir string) error {
 		return fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	var manifest PackageManifest
+	var manifest core.PackageManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
@@ -354,7 +355,7 @@ func restoreNetworks(workDir string) error {
 		return fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	var manifest PackageManifest
+	var manifest core.PackageManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
@@ -427,7 +428,7 @@ func createContainers(workDir string) error {
 		return fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	var manifest PackageManifest
+	var manifest core.PackageManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
@@ -437,7 +438,7 @@ func createContainers(workDir string) error {
 	}
 
 	sortedServices := topologicalSortCreate(manifest.Services)
-	utils.PrintS("Services start order: %v\n", getStartOrderNames(sortedServices))
+	utils.PrintS("core.Services start order: %v\n", getStartOrderNames(sortedServices))
 
 	for _, svc := range sortedServices {
 		containerPath := filepath.Join(workDir, svc.Name)
@@ -538,7 +539,7 @@ func createContainers(workDir string) error {
 	return nil
 }
 
-func topologicalSortCreate(services []Service) []Service {
+func topologicalSortCreate(services []core.Service) []core.Service {
 	if len(services) <= 1 {
 		return services
 	}
@@ -566,7 +567,7 @@ func topologicalSortCreate(services []Service) []Service {
 		}
 	}
 
-	result := make([]Service, 0, len(services))
+	result := make([]core.Service, 0, len(services))
 	order := 0
 	for len(queue) > 0 {
 		current := queue[0]
@@ -592,7 +593,7 @@ func topologicalSortCreate(services []Service) []Service {
 	return result
 }
 
-func getStartOrderNames(services []Service) []string {
+func getStartOrderNames(services []core.Service) []string {
 	names := make([]string, len(services))
 	for i, s := range services {
 		names[i] = s.Name

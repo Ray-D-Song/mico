@@ -10,31 +10,17 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/ray-d-song/migo/pkg/core"
 	"github.com/ray-d-song/migo/pkg/deps"
 	"github.com/ray-d-song/migo/pkg/docker"
 	"github.com/ray-d-song/migo/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
-type Service struct {
-	Name        string   `json:"name"`
-	Image      string   `json:"image"`
-	DependsOn  []string `json:"depends_on"`
-	StartOrder int      `json:"start_order"`
-	Ports      []string `json:"ports"`
-}
-
-type PackageManifest struct {
-	Version    string    `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	Project   string    `json:"project"`
-	Networks  []string  `json:"networks"`
-	Services  []Service `json:"services"`
-}
-
 var (
-	outputPath  string
-	containers string
+	outputPath   string
+	containers  string
+	incremental bool
 )
 
 var packCmd = &cobra.Command{
@@ -93,8 +79,58 @@ Examples:
 		depGraph := deps.AnalyzeComposeDeps(containerList)
 		utils.PrintS("Project: %s\n", depGraph.Project)
 
-		workDir := utils.CreateWorkDir("mico")
-		utils.PrintI("Work directory: %s\n", workDir)
+		var containerNames []string
+		var workDir string
+		var needPackContainers []container.Summary
+		var lastManifest *core.LastManifest
+
+		if incremental {
+			lastManifest, err = utils.LoadLastManifest()
+			if err != nil {
+				utils.PrintErrMsg(utils.ErrPackCreate, err)
+				return
+			}
+			if lastManifest == nil {
+				utils.PrintW("No previous manifest found, doing full pack\n")
+				incremental = false
+			} else {
+				workDir = utils.CreateWorkDir("mico-incr")
+				utils.PrintI("Work directory: %s\n", workDir)
+
+				changed, err := computeDiff(lastManifest.Manifest, containerList)
+				if err != nil {
+					utils.PrintErrMsg(utils.ErrPackCreate, err)
+					return
+				}
+
+				if len(changed) == 0 {
+					utils.PrintS("No changes detected, nothing to pack\n")
+					return
+				}
+
+				utils.PrintI("Changed containers: %v\n", changed)
+				containerNames = changed
+				for _, name := range changed {
+					for _, c := range containerList {
+						cName := cleanContainerName(c.Names)
+						if cName == name {
+							needPackContainers = append(needPackContainers, c)
+							break
+						}
+					}
+				}
+			}
+		}
+
+		if !incremental {
+			workDir = utils.CreateWorkDir("mico")
+			utils.PrintI("Work directory: %s\n", workDir)
+			needPackContainers = containerList
+			containerNames = make([]string, len(containerList))
+			for i, c := range containerList {
+				containerNames[i] = cleanContainerName(c.Names)
+			}
+		}
 
 		saver := docker.NewImageSaver(workDir)
 		inspector := docker.NewInspector(workDir)
@@ -108,28 +144,15 @@ Examples:
 		imageItems := make([]struct {
 			ContainerName string
 			ImageRef     string
-		}, len(containerList))
-		for i, c := range containerList {
-			name := c.Names[0]
-			if len(name) > 0 && name[0] == '/' {
-				name = name[1:]
-			}
+		}, len(needPackContainers))
+		for i, c := range needPackContainers {
 			imageItems[i] = struct {
 				ContainerName string
 				ImageRef     string
 			}{
-				ContainerName: name,
+				ContainerName: cleanContainerName(c.Names),
 				ImageRef:     c.Image,
 			}
-		}
-
-		containerNames := make([]string, len(containerList))
-		for i, c := range containerList {
-			name := c.Names[0]
-			if len(name) > 0 && name[0] == '/' {
-				name = name[1:]
-			}
-			containerNames[i] = name
 		}
 
 		wg.Add(3)
@@ -177,15 +200,29 @@ Examples:
 			}
 		}
 
-		networks := collectNetworks(containerList)
-		services := buildServices(depGraph, containerList)
-		manifest := PackageManifest{
-			Version:    "1.0",
-			CreatedAt: time.Now(),
-			Project:   depGraph.Project,
-			Networks:  networks,
-			Services:  services,
+		var manifest core.PackageManifest
+		if incremental {
+			manifest = core.PackageManifest{
+				Version:    "1.0",
+				CreatedAt: time.Now(),
+				Project:   depGraph.Project,
+				Networks:  collectNetworks(needPackContainers),
+				Services:  buildServices(depGraph, needPackContainers),
+				Incremental: true,
+				BasePack:     lastManifest.PackageHash,
+			}
+		} else {
+			networks := collectNetworks(containerList)
+			services := buildServices(depGraph, containerList)
+			manifest = core.PackageManifest{
+				Version:    "1.0",
+				CreatedAt: time.Now(),
+				Project:   depGraph.Project,
+				Networks:  networks,
+				Services:  services,
+			}
 		}
+
 		manifestPath := filepath.Join(workDir, "manifest.json")
 		data, err := json.MarshalIndent(manifest, "", "  ")
 		if err != nil {
@@ -214,6 +251,14 @@ Examples:
 			return
 		}
 		utils.PrintS("Checksum: %s\n", hash[:16]+"...")
+
+		if !incremental {
+			if err := utils.SaveLastManifest(hash, manifest); err != nil {
+				utils.PrintErrMsg(utils.ErrPackCreate, err)
+				return
+			}
+		}
+
 		utils.PrintS("Pack completed successfully!\n")
 	},
 }
@@ -224,6 +269,7 @@ func init() {
 	packCmd.Flags().StringVarP(&outputPath, "output", "o", "", "Output path for migration package (e.g., ./migration.zst)")
 	packCmd.Flags().StringVarP(&containers, "containers", "c", "", "Comma-separated list of container names to pack (default: all running containers)")
 	packCmd.Flags().IntVarP(&concurrent, "concurrent", "j", 1, "Number of concurrent operations (default: 1)")
+	packCmd.Flags().BoolVar(&incremental, "incremental", false, "Create incremental pack based on last pack")
 }
 
 func collectNetworks(containers []container.Summary) []string {
@@ -242,14 +288,11 @@ func collectNetworks(containers []container.Summary) []string {
 	return networks
 }
 
-func buildServices(depGraph deps.DepAnalysis, containers []container.Summary) []Service {
-	services := make([]Service, 0, len(containers))
+func buildServices(depGraph deps.DepAnalysis, containers []container.Summary) []core.Service {
+	services := make([]core.Service, 0, len(containers))
 	containerMap := make(map[string]container.Summary)
 	for _, c := range containers {
-		name := c.Names[0]
-		if len(name) > 0 && name[0] == '/' {
-			name = name[1:]
-		}
+		name := cleanContainerName(c.Names)
 		containerMap[name] = c
 	}
 
@@ -264,7 +307,7 @@ func buildServices(depGraph deps.DepAnalysis, containers []container.Summary) []
 			}
 		}
 
-		services = append(services, Service{
+		services = append(services, core.Service{
 			Name:        info.ServiceName,
 			Image:      getImageFromContainer(info.ContainerName),
 			DependsOn:  info.DependsOn,
@@ -286,7 +329,7 @@ func getImageFromContainer(containerName string) string {
 	return resp.Config.Image
 }
 
-func topologicalSort(services []Service) []Service {
+func topologicalSort(services []core.Service) []core.Service {
 	if len(services) <= 1 {
 		return services
 	}
@@ -313,7 +356,7 @@ func topologicalSort(services []Service) []Service {
 		}
 	}
 
-	result := make([]Service, 0, len(services))
+	result := make([]core.Service, 0, len(services))
 	order := 0
 	for len(queue) > 0 {
 		current := queue[0]
@@ -337,4 +380,69 @@ func topologicalSort(services []Service) []Service {
 	}
 
 	return result
+}
+
+func cleanContainerName(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	name := names[0]
+	if len(name) > 0 && name[0] == '/' {
+		return name[1:]
+	}
+	return name
+}
+
+func computeDiff(lastManifest core.PackageManifest, currentContainers []container.Summary) ([]string, error) {
+	lastServices := make(map[string]core.Service)
+	for _, svc := range lastManifest.Services {
+		lastServices[svc.Name] = svc
+	}
+
+	changed := make([]string, 0)
+	for _, c := range currentContainers {
+		name := cleanContainerName(c.Names)
+		lastSvc, exists := lastServices[name]
+		if !exists {
+			changed = append(changed, name)
+			continue
+		}
+
+		client := docker.GetClient()
+		resp, err := client.ContainerInspect(nil, name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect container %s: %w", name, err)
+		}
+
+		configHash := utils.SHA256String(fmt.Sprintf("%v", resp.Config))
+
+		hasChange := false
+		if lastSvc.Image != c.Image {
+			hasChange = true
+		}
+		if !hasChange && configHash != utils.SHA256String(fmt.Sprintf("%v", lastSvc)) {
+			hasChange = true
+		}
+		if !hasChange {
+			for _, port := range c.Ports {
+				found := false
+				for _, p := range lastSvc.Ports {
+					if p == fmt.Sprintf("%d/%s", port.PublicPort, port.Type) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					hasChange = true
+					break
+				}
+			}
+		}
+
+		if hasChange {
+			changed = append(changed, name)
+		}
+	}
+
+	return changed, nil
 }

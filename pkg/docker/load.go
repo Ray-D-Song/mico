@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/ray-d-song/migo/pkg/utils"
+	"github.com/ray-d-song/mico/pkg/utils"
 )
 
 func LoadImage(imagePath string) error {

@@ -1,6 +1,6 @@
 package main
 
-import "github.com/ray-d-song/migo/cmd"
+import "github.com/ray-d-song/mico/cmd"
 
 func main() {
 	cmd.Execute()

@@ -1,4 +1,4 @@
-module github.com/ray-d-song/migo
+module github.com/ray-d-song/mico
 
 go 1.24.5
 

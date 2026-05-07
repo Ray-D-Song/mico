@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ray-d-song/migo/pkg/core"
+	"github.com/ray-d-song/mico/pkg/core"
 )
 
 const (

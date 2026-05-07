@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/ray-d-song/migo/pkg/utils"
+	"github.com/ray-d-song/mico/pkg/utils"
 )
 
 type ImageSaver struct {

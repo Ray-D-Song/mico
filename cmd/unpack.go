@@ -12,9 +12,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ray-d-song/migo/pkg/core"
-	"github.com/ray-d-song/migo/pkg/docker"
-	"github.com/ray-d-song/migo/pkg/utils"
+	"github.com/ray-d-song/mico/pkg/core"
+	"github.com/ray-d-song/mico/pkg/docker"
+	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/spf13/cobra"
 )
 

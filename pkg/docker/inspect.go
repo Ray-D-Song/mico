@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/ray-d-song/migo/pkg/core"
-	"github.com/ray-d-song/migo/pkg/utils"
+	"github.com/ray-d-song/mico/pkg/core"
+	"github.com/ray-d-song/mico/pkg/utils"
 )
 
 type Inspector struct {

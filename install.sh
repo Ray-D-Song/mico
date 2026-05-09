@@ -61,10 +61,12 @@ else
         fi
     done
 
-    echo
-    echo "--> Added ~/.local/bin to your shell profiles."
-    echo "    Restart your shell or run: source ~/.bashrc"
+    SHELL_HINT="true"
 fi
 
 echo "--> Installed to ${INSTALL_DIR}/${BIN}"
 echo "--> Done! Run 'mico --help' to get started."
+
+if [ -n "$SHELL_HINT" ]; then
+    printf "\033[34m   Restart your shell or run: source ~/.bashrc\033[0m\n"
+fi

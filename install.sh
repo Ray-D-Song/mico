@@ -37,25 +37,34 @@ echo "--> Verifying checksum..."
 
 chmod +x "${TMP_DIR}/${TARGET}"
 
-INSTALL_DIR="${HOME}/.local/bin"
-if [ ! -d "$INSTALL_DIR" ]; then
-    mkdir -p "$INSTALL_DIR"
+install_to() {
+    mkdir -p "$1"
+    mv "${TMP_DIR}/${TARGET}" "$1/${BIN}"
+    echo "$1"
+}
+
+# 1. ~/.local/bin if already in PATH
+if echo ":$PATH:" | grep -q ":${HOME}/.local/bin:"; then
+    INSTALL_DIR=$(install_to "${HOME}/.local/bin")
+
+# 2. /usr/local/bin if writable (usually in PATH by default)
+elif [ -w /usr/local/bin ]; then
+    INSTALL_DIR=$(install_to /usr/local/bin)
+
+# 3. ~/.local/bin fallback + auto-configure shell profile
+else
+    INSTALL_DIR=$(install_to "${HOME}/.local/bin")
+
+    for rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile"; do
+        if [ -f "$rc" ] && ! grep -q ".local/bin" "$rc" 2>/dev/null; then
+            echo "export PATH=\"\${HOME}/.local/bin:\$PATH\"" >> "$rc"
+        fi
+    done
+
+    echo
+    echo "--> Added ~/.local/bin to your shell profiles."
+    echo "    Restart your shell or run: source ~/.bashrc"
 fi
 
-mv "${TMP_DIR}/${TARGET}" "${INSTALL_DIR}/${BIN}"
-
 echo "--> Installed to ${INSTALL_DIR}/${BIN}"
-
-case ":$PATH:" in
-    *:"${INSTALL_DIR}":*) ;;
-    *)
-        echo
-        echo "⚠  ${INSTALL_DIR} is not in your PATH."
-        echo "   Add this to your shell profile:"
-        echo
-        echo "   export PATH=\"\${HOME}/.local/bin:\$PATH\""
-        echo
-        ;;
-esac
-
 echo "--> Done! Run 'mico --help' to get started."

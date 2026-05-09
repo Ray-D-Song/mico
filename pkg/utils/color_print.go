@@ -8,6 +8,13 @@ const (
 	yellow = "\033[33m"
 	red    = "\033[31m"
 	reset  = "\033[0m"
+
+	Logo = blue +
+		"▗▖  ▗▖▗▄▄▄▖ ▗▄▄▖ ▗▄▖\n" +
+		"▐▛▚▞▜▌  █  ▐▌   ▐▌ ▐▌\n" +
+		"▐▌  ▐▌  █  ▐▌   ▐▌ ▐▌\n" +
+		"▐▌  ▐▌▗▄█▄▖▝▚▄▄▖▝▚▄▞▘\n" +
+		reset
 )
 
 func PrintI(f string, a ...any) {

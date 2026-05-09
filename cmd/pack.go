@@ -39,6 +39,8 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx := cmd.Context()
 
+		fmt.Print(utils.Logo)
+
 		if outputPath == "" {
 			timestamp := time.Now().Format("20060102150405")
 			outputPath = fmt.Sprintf("mico-%s.zstd", timestamp)

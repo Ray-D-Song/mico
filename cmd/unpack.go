@@ -38,6 +38,8 @@ Examples:
 			concurrent = 1
 		}
 
+		fmt.Print(utils.Logo)
+
 		if len(args) == 0 {
 			utils.PrintErrMsg(utils.ErrInvalidInput, "migration package required")
 			return

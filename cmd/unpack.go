@@ -14,6 +14,7 @@ import (
 
 	"github.com/ray-d-song/mico/pkg/core"
 	"github.com/ray-d-song/mico/pkg/docker"
+	"github.com/ray-d-song/mico/pkg/runtime"
 	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/spf13/cobra"
 )
@@ -282,19 +283,19 @@ func restoreBindVolume(volumeName, containerDestPath, tarPath string) error {
 		return nil
 	}
 
-	cmd := exec.Command("docker", "volume", "create", volumeName)
+	cmd := exec.Command(runtime.Binary(), "volume", "create", volumeName)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		fmt.Printf("volume create output: %s\n", string(output))
 	}
 
 	tmpContainer := "mico-restore-" + quickHash(tarPath)[:8]
 
-	cmd = exec.Command("docker", "run", "-d", "--name", tmpContainer, "-v", volumeName+":/data", "alpine:latest", "sleep", "60")
+	cmd = exec.Command(runtime.Binary(), "run", "-d", "--name", tmpContainer, "-v", volumeName+":/data", "alpine:latest", "sleep", "60")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create temp container: %w, output: %s", err, string(output))
 	}
 
-	cmd = exec.Command("docker", "cp", tarPath, tmpContainer+":/data/.")
+	cmd = exec.Command(runtime.Binary(), "cp", tarPath, tmpContainer+":/data/.")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		dockerRemove(tmpContainer)
 		return fmt.Errorf("failed to copy to volume: %w, output: %s", err, string(output))
@@ -305,7 +306,7 @@ func restoreBindVolume(volumeName, containerDestPath, tarPath string) error {
 }
 
 func dockerRemove(name string) {
-	cmd := exec.Command("docker", "rm", "-f", name)
+	cmd := exec.Command(runtime.Binary(), "rm", "-f", name)
 	cmd.Run()
 }
 
@@ -368,9 +369,9 @@ func restoreNetworks(workDir string) error {
 	}
 
 	for networkID := range networkSet {
-		cmd := exec.Command("docker", "network", "inspect", networkID)
+		cmd := exec.Command(runtime.Binary(), "network", "inspect", networkID)
 		if err := cmd.Run(); err != nil {
-			cmd = exec.Command("docker", "network", "create", networkID)
+			cmd = exec.Command(runtime.Binary(), "network", "create", networkID)
 			if output, err := cmd.CombinedOutput(); err != nil {
 				fmt.Printf("network create output: %s\n", string(output))
 			}
@@ -405,9 +406,9 @@ func restoreNetworks(workDir string) error {
 		}
 
 		for networkName := range networkSettings.Networks {
-			cmd := exec.Command("docker", "network", "inspect", networkName)
+			cmd := exec.Command(runtime.Binary(), "network", "inspect", networkName)
 			if err := cmd.Run(); err != nil {
-				cmd = exec.Command("docker", "network", "create", networkName)
+				cmd = exec.Command(runtime.Binary(), "network", "create", networkName)
 				if output, err := cmd.CombinedOutput(); err != nil {
 					fmt.Printf("network create output: %s\n", string(output))
 				}
@@ -529,7 +530,7 @@ func createContainers(workDir string) error {
 			runArgs = append(runArgs, cfg.Cmd...)
 		}
 
-		cmd := exec.Command("docker", runArgs...)
+		cmd := exec.Command(runtime.Binary(), runArgs...)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			utils.PrintW("Container %s: %s\n", svc.Name, string(output))
 			continue

@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	"github.com/ray-d-song/mico/pkg/docker"
+	rt "github.com/ray-d-song/mico/pkg/runtime"
 	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/spf13/cobra"
 )
@@ -15,20 +16,11 @@ func elevateIfNeeded(cmd *cobra.Command, args []string) {
 	if runtime.GOOS != "linux" {
 		return
 	}
-	if os.Geteuid() == 0 {
+
+	if !rt.SudoNeeded() {
 		return
 	}
 
-	f, err := os.Open("/var/lib/docker/volumes")
-	if err == nil {
-		f.Close()
-		return
-	}
-	if !os.IsPermission(err) {
-		return
-	}
-
-	fmt.Print(utils.Logo)
 	utils.PrintI("Docker volume data requires root access. Elevating with sudo...\n\n")
 
 	exe, _ := os.Executable()

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 
+	"github.com/ray-d-song/mico/pkg/runtime"
 	"github.com/ray-d-song/mico/pkg/utils"
 )
 
@@ -12,7 +13,7 @@ func LoadImage(imagePath string) error {
 		return fmt.Errorf("image file not found: %s", imagePath)
 	}
 
-	cmd := exec.Command("docker", "load", "-i", imagePath)
+	cmd := exec.Command(runtime.Binary(), "load", "-i", imagePath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to load image: %w, output: %s", err, string(output))

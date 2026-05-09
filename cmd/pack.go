@@ -79,7 +79,9 @@ Examples:
 
 		utils.PrintI("Analyzing dependencies...\n")
 		depGraph := deps.AnalyzeComposeDeps(containerList)
-		utils.PrintS("Project: %s\n", depGraph.Project)
+		if depGraph.Project != "" {
+			utils.PrintS("Project: %s\n", depGraph.Project)
+		}
 
 		var containerNames []string
 		var workDir string

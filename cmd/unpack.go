@@ -88,12 +88,14 @@ Examples:
 		os.Remove(tarPath)
 		utils.PrintS("Extracted\n")
 
-		utils.PrintI("Checking port conflicts...\n")
-		if err := checkPortsConflict(workDir); err != nil {
-			utils.PrintErrMsg(utils.ErrVerifyFailed, err)
-			return
+		if !forceRestore {
+			utils.PrintI("Checking port conflicts...\n")
+			if err := checkPortsConflict(workDir); err != nil {
+				utils.PrintErrMsg(utils.ErrVerifyFailed, err)
+				return
+			}
+			utils.PrintS("Port check passed\n")
 		}
-		utils.PrintS("Port check passed\n")
 
 		utils.PrintI("Loading images...\n")
 		if err := loadImages(workDir); err != nil {
@@ -240,7 +242,7 @@ func restoreVolumes(workDir string) error {
 				volumeName := generateVolumeName(containerName, mnt.Destination)
 				bindTarPath := filepath.Join(workDir, containerName, "bind", escapePath(mnt.Destination)+".tar")
 
-				if err := restoreBindVolume(volumeName, mnt.Destination, bindTarPath); err != nil {
+				if err := restoreBindVolume(volumeName, bindTarPath, forceRestore); err != nil {
 					return fmt.Errorf("failed to restore volume for %s: %w", mnt.Destination, err)
 				}
 
@@ -251,7 +253,7 @@ func restoreVolumes(workDir string) error {
 				volumeName := generateVolumeName(containerName, mnt.Destination)
 				volTarPath := filepath.Join(workDir, containerName, "volume", srcVolName+".tar")
 
-				if err := restoreBindVolume(volumeName, mnt.Destination, volTarPath); err != nil {
+				if err := restoreBindVolume(volumeName, volTarPath, forceRestore); err != nil {
 					return fmt.Errorf("failed to restore volume %s: %w", srcVolName, err)
 				}
 
@@ -305,9 +307,13 @@ func escapePath(path string) string {
 	return result
 }
 
-func restoreBindVolume(volumeName, containerDestPath, tarPath string) error {
+func restoreBindVolume(volumeName, tarPath string, force bool) error {
 	if !utils.FileExists(tarPath) {
 		return nil
+	}
+
+	if force {
+		exec.Command(runtime.Binary(), "volume", "rm", "-f", volumeName).Run()
 	}
 
 	cmd := exec.Command(runtime.Binary(), "volume", "create", volumeName)
@@ -560,6 +566,10 @@ func createContainers(workDir string) error {
 		runArgs = append(runArgs, cfg.Image)
 		if len(cfg.Cmd) > 0 {
 			runArgs = append(runArgs, cfg.Cmd...)
+		}
+
+		if forceRestore {
+			exec.Command(runtime.Binary(), "rm", "-f", cName).Run()
 		}
 
 		cmd := exec.Command(runtime.Binary(), runArgs...)

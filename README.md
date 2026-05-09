@@ -2,6 +2,8 @@
 
 > **Mi**grate **Co**ntainers — painless Docker container migration between servers.
 
+[中文文档](README.zh.md)
+
 Mico is a CLI tool that packs all running Docker containers (images, configs, volumes, networks) into a single compressed archive on the source server, and restores everything on the target server with a single command.
 
 ## Features

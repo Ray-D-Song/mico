@@ -12,6 +12,10 @@ Mico is a CLI tool that packs all running Docker containers (images, configs, vo
 - **Dependency-aware** — respects Docker Compose `depends_on` ordering via topological sort
 - **Concurrent operations** — configurable worker count for faster packing/unpacking
 - **Integrity verification** — SHA256 checksums auto-generated and verified on unpack
+- **Multi-runtime** — supports Docker, OrbStack and Podman
+
+> [!NOTE]
+> Bind mounts (`-v /host/path:/container/path`) are converted to named volumes after migration, since the target server may not replicate the same directory paths.
 
 ## Installation
 
@@ -26,6 +30,9 @@ curl -fsSL https://raw.githubusercontent.com/Ray-D-Song/mico/main/install.sh | s
 ```powershell
 irm https://raw.githubusercontent.com/Ray-D-Song/mico/main/install.ps1 | iex
 ```
+
+> [!WARNING]
+> Windows Docker (WSL2) has not been tested.
 
 ### Go install
 

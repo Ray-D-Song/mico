@@ -12,6 +12,10 @@ Mico 是一个 CLI 工具，在源服务器上将所有运行中的 Docker 容�
 - **依赖感知** — 通过拓扑排序遵循 Docker Compose `depends_on` 启动顺序
 - **并发操作** — 可配置并发数，加速打包/解包
 - **完整性校验** — 自动生成 SHA256 校验和，解包时验证
+- **多运行时** — 支持 Docker、OrbStack 和 Podman
+
+> [!NOTE]
+> Bind 挂载（`-v /host/path:/container/path`）在迁移后会转为命名卷，因为目标服务器上可能无法重现文件夹路径。
 
 ## 安装
 
@@ -26,6 +30,9 @@ curl -fsSL https://raw.githubusercontent.com/Ray-D-Song/mico/main/install.sh | s
 ```powershell
 irm https://raw.githubusercontent.com/Ray-D-Song/mico/main/install.ps1 | iex
 ```
+
+> [!WARNING]
+> Windows Docker (WSL2) 缺乏测试。
 
 ### Go install
 

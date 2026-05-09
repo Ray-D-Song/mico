@@ -312,11 +312,12 @@ func buildServices(depGraph deps.DepAnalysis, containers []container.Summary) []
 		}
 
 		services = append(services, core.Service{
-			Name:        info.ServiceName,
-			Image:      getImageFromContainer(info.ContainerName),
-			DependsOn:  info.DependsOn,
-			StartOrder: 0,
-			Ports:     ports,
+			Name:          info.ServiceName,
+			ContainerName: info.ContainerName,
+			Image:         getImageFromContainer(info.ContainerName),
+			DependsOn:     info.DependsOn,
+			StartOrder:    0,
+			Ports:         ports,
 		})
 	}
 

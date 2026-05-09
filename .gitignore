@@ -4,5 +4,5 @@ mico
 migration.zst
 migration.zst.sha256
 
-scripts/data
-scripts/html
+tests/data
+tests/html

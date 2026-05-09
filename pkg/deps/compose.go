@@ -49,9 +49,15 @@ func parseDependsOn(s string) []string {
 	parts := strings.Split(s, ",")
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
-		if p != "" {
-			result = append(result, p)
+		if p == "" {
+			continue
 		}
+		// Docker Compose format: "service:condition:required"
+		// Extract only the service name.
+		if idx := strings.Index(p, ":"); idx > 0 {
+			p = p[:idx]
+		}
+		result = append(result, p)
 	}
 	return result
 }

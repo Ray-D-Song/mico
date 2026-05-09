@@ -57,17 +57,17 @@ func detectRuntime() Info {
 		return Info{Type: Podman, Binary: "podman", Socket: rootfulSocket}
 	}
 
-	// Check if podman binary exists (might use Docker-compatible socket)
+	// Check for Docker socket (prefer Docker if its socket is alive, even if podman binary exists)
+	dockerSocket := "/var/run/docker.sock"
+	if socketReachable(dockerSocket) {
+		return Info{Type: Docker, Binary: "docker", Socket: ""}
+	}
+
+	// No socket found. Fall back to binary detection.
 	if _, err := exec.LookPath("podman"); err == nil {
-		// Podman installed but no socket - try docker.sock compatibility
-		dockerSocket := "/var/run/docker.sock"
-		if socketReachable(dockerSocket) {
-			return Info{Type: Podman, Binary: "podman", Socket: ""}
-		}
 		return Info{Type: Podman, Binary: "podman", Socket: ""}
 	}
 
-	// Fall back to Docker
 	return Info{Type: Docker, Binary: "docker", Socket: ""}
 }
 

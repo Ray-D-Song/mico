@@ -3,11 +3,12 @@ package core
 import "time"
 
 type Service struct {
-	Name        string   `json:"name"`
-	Image      string   `json:"image"`
-	DependsOn  []string `json:"depends_on"`
-	StartOrder int      `json:"start_order"`
-	Ports      []string `json:"ports"`
+	Name          string   `json:"name"`
+	ContainerName string   `json:"container_name"`
+	Image         string   `json:"image"`
+	DependsOn     []string `json:"depends_on"`
+	StartOrder    int      `json:"start_order"`
+	Ports         []string `json:"ports"`
 }
 
 type PackageManifest struct {

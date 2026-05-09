@@ -85,10 +85,20 @@ func (c *ZSTDCompressor) CompressDir(srcDir, destPath string) error {
 
 func (c *ZSTDCompressor) writeDirToTar(srcDir string, tw *tar.Writer) error {
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+
 		header, err := tar.FileInfoHeader(info, path)
 		if err != nil {
 			return err
 		}
+		header.Name = relPath
 
 		if err := tw.WriteHeader(header); err != nil {
 			return err

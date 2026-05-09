@@ -444,7 +444,12 @@ func createContainers(workDir string) error {
 	utils.PrintS("core.Services start order: %v\n", getStartOrderNames(sortedServices))
 
 	for _, svc := range sortedServices {
-		containerPath := filepath.Join(workDir, svc.Name)
+		cName := svc.ContainerName
+		if cName == "" {
+			cName = svc.Name
+		}
+
+		containerPath := filepath.Join(workDir, cName)
 		if !utils.FileExists(containerPath) {
 			continue
 		}
@@ -509,7 +514,7 @@ func createContainers(workDir string) error {
 			}
 		}
 
-		runArgs := []string{"run", "-d", "--name", svc.Name}
+		runArgs := []string{"run", "-d", "--name", cName}
 		for _, bind := range binds {
 			runArgs = append(runArgs, "-v", bind)
 		}
@@ -532,11 +537,11 @@ func createContainers(workDir string) error {
 
 		cmd := exec.Command(runtime.Binary(), runArgs...)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			utils.PrintW("Container %s: %s\n", svc.Name, string(output))
+			utils.PrintW("Container %s: %s\n", cName, string(output))
 			continue
 		}
 
-		utils.PrintS("Container created: %s\n", svc.Name)
+		utils.PrintS("Container created: %s\n", cName)
 	}
 
 	return nil

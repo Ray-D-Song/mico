@@ -29,20 +29,20 @@ TARGET="${BIN}_${OS}_${ARCH}"
 
 echo "--> Downloading mico ${OS}/${ARCH}..."
 
-curl -fsSL "${BASE_URL}/${TARGET}" -o "${TMP_DIR}/${BIN}"
+curl -fsSL "${BASE_URL}/${TARGET}" -o "${TMP_DIR}/${TARGET}"
 curl -fsSL "${BASE_URL}/checksums.txt" -o "${TMP_DIR}/checksums.txt"
 
 echo "--> Verifying checksum..."
 (cd "$TMP_DIR" && grep "${TARGET}" checksums.txt | sha256sum -c -)
 
-chmod +x "${TMP_DIR}/${BIN}"
+chmod +x "${TMP_DIR}/${TARGET}"
 
 INSTALL_DIR="${HOME}/.local/bin"
 if [ ! -d "$INSTALL_DIR" ]; then
     mkdir -p "$INSTALL_DIR"
 fi
 
-mv "${TMP_DIR}/${BIN}" "${INSTALL_DIR}/${BIN}"
+mv "${TMP_DIR}/${TARGET}" "${INSTALL_DIR}/${BIN}"
 
 echo "--> Installed to ${INSTALL_DIR}/${BIN}"
 

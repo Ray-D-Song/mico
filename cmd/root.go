@@ -3,11 +3,47 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 
 	"github.com/ray-d-song/mico/pkg/docker"
 	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/spf13/cobra"
 )
+
+func elevateIfNeeded(cmd *cobra.Command, args []string) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	if os.Geteuid() == 0 {
+		return
+	}
+
+	f, err := os.Open("/var/lib/docker/volumes")
+	if err == nil {
+		f.Close()
+		return
+	}
+	if !os.IsPermission(err) {
+		return
+	}
+
+	fmt.Print(utils.Logo)
+	utils.PrintI("Docker volume data requires root access. Elevating with sudo...\n\n")
+
+	exe, _ := os.Executable()
+	sudoArgs := append([]string{exe}, os.Args[1:]...)
+
+	sudoCmd := exec.Command("sudo", sudoArgs...)
+	sudoCmd.Stdin = os.Stdin
+	sudoCmd.Stdout = os.Stdout
+	sudoCmd.Stderr = os.Stderr
+
+	if err := sudoCmd.Run(); err != nil {
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -18,9 +54,7 @@ of Docker container services between different servers.
 
 Use 'mico pack' to create a migration package containing all container services
 and 'mico unpack' to restore all services on the target server.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+	PersistentPreRun: elevateIfNeeded,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

@@ -439,6 +439,9 @@ func restoreNetworks(workDir string) error {
 		}
 
 		for networkName := range networkSettings.Networks {
+			if isBuiltinNetwork(networkName) {
+				continue
+			}
 			cmd := exec.Command(runtime.Binary(), "network", "inspect", networkName)
 			if err := cmd.Run(); err != nil {
 				cmd = exec.Command(runtime.Binary(), "network", "create", networkName)
@@ -636,6 +639,14 @@ func topologicalSortCreate(services []core.Service) []core.Service {
 	}
 
 	return result
+}
+
+func isBuiltinNetwork(name string) bool {
+	switch name {
+	case "bridge", "host", "none":
+		return true
+	}
+	return false
 }
 
 func getStartOrderNames(services []core.Service) []string {

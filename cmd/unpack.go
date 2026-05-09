@@ -235,22 +235,49 @@ func restoreVolumes(workDir string) error {
 		}
 
 		for _, mnt := range containerMounts.Mounts {
-			if mnt.Type != "bind" {
-				continue
+			switch mnt.Type {
+			case "bind":
+				volumeName := generateVolumeName(containerName, mnt.Destination)
+				bindTarPath := filepath.Join(workDir, containerName, "bind", escapePath(mnt.Destination)+".tar")
+
+				if err := restoreBindVolume(volumeName, mnt.Destination, bindTarPath); err != nil {
+					return fmt.Errorf("failed to restore volume for %s: %w", mnt.Destination, err)
+				}
+
+				utils.PrintS("Restored volume: %s\n", volumeName)
+
+			case "volume":
+				srcVolName := sourceVolumeName(mnt.Source)
+				volumeName := generateVolumeName(containerName, mnt.Destination)
+				volTarPath := filepath.Join(workDir, containerName, "volume", srcVolName+".tar")
+
+				if err := restoreBindVolume(volumeName, mnt.Destination, volTarPath); err != nil {
+					return fmt.Errorf("failed to restore volume %s: %w", srcVolName, err)
+				}
+
+				utils.PrintS("Restored volume: %s\n", volumeName)
 			}
-
-			volumeName := generateVolumeName(containerName, mnt.Destination)
-			bindTarPath := filepath.Join(workDir, containerName, "bind", escapePath(mnt.Destination)+".tar")
-
-			if err := restoreBindVolume(volumeName, mnt.Destination, bindTarPath); err != nil {
-				return fmt.Errorf("failed to restore volume for %s: %w", mnt.Destination, err)
-			}
-
-			utils.PrintS("Restored volume: %s\n", volumeName)
 		}
 	}
 
 	return nil
+}
+
+func sourceVolumeName(source string) string {
+	// source is like /var/lib/docker/volumes/<name>/_data
+	parts := strings.Split(source, "/volumes/")
+	if len(parts) == 2 {
+		sub := strings.Split(parts[1], "/")
+		if len(sub) > 0 {
+			return sub[0]
+		}
+	}
+	// fallback: take last meaningful path component
+	parts = strings.Split(strings.TrimRight(source, "/"), "/")
+	if len(parts) > 1 {
+		return parts[len(parts)-2]
+	}
+	return parts[len(parts)-1]
 }
 
 func generateVolumeName(containerName, destPath string) string {

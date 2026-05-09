@@ -13,6 +13,7 @@ cleanup() {
     echo -e "\n${BLUE}--- Cleanup ---${NC}"
     cd "$SCRIPT_DIR"
     docker compose down -v 2>/dev/null || true
+    docker network rm tests_mico-net 2>/dev/null || true
     rm -f mico-test-*.zst mico-test-*.zst.sha256 2>/dev/null || true
 }
 

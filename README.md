@@ -15,6 +15,20 @@ Mico is a CLI tool that packs all running Docker containers (images, configs, vo
 
 ## Installation
 
+### Shell (Linux / macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ray-D-Song/mico/main/install.sh | sh
+```
+
+### PowerShell (Windows)
+
+```powershell
+irm https://raw.githubusercontent.com/Ray-D-Song/mico/main/install.ps1 | iex
+```
+
+### Go install
+
 ```bash
 go install github.com/Ray-D-Song/mico@latest
 ```

@@ -15,6 +15,20 @@ Mico 是一个 CLI 工具，在源服务器上将所有运行中的 Docker 容�
 
 ## 安装
 
+### Shell（Linux / macOS）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ray-D-Song/mico/main/install.sh | sh
+```
+
+### PowerShell（Windows）
+
+```powershell
+irm https://raw.githubusercontent.com/Ray-D-Song/mico/main/install.ps1 | iex
+```
+
+### Go install
+
 ```bash
 go install github.com/Ray-D-Song/mico@latest
 ```

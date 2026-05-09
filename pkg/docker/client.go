@@ -29,7 +29,15 @@ func InitializeClient() error {
 
 		cli, err := client.New(context.Background())
 		if err != nil {
-			clientErr = fmt.Errorf("failed to create %s client: %w", rt.Type, err)
+			hint := ""
+			if rt.Type == runtime.Podman {
+				if os.Geteuid() == 0 {
+					hint = "\nEnable the Podman socket with: systemctl enable --now podman.socket"
+				} else {
+					hint = "\nEnable the rootless Podman socket with: systemctl --user enable --now podman.socket"
+				}
+			}
+			clientErr = fmt.Errorf("failed to create %s client: %w%s", rt.Type, err, hint)
 			return
 		}
 		dockerClient = cli

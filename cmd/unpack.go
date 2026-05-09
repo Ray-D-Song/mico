@@ -321,6 +321,18 @@ func restoreBindVolume(volumeName, tarPath string, force bool) error {
 		fmt.Printf("volume create output: %s\n", string(output))
 	}
 
+	// Extract tar locally so we can copy extracted contents to the volume
+	extractDir, err := os.MkdirTemp("", "mico-vol-")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(extractDir)
+
+	cmd = exec.Command("tar", "-xf", tarPath, "-C", extractDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to extract volume tar: %w, output: %s", err, string(output))
+	}
+
 	tmpContainer := "mico-restore-" + quickHash(tarPath)[:8]
 
 	cmd = exec.Command(runtime.Binary(), "run", "-d", "--name", tmpContainer, "-v", volumeName+":/data", "alpine:latest", "sleep", "60")
@@ -328,7 +340,7 @@ func restoreBindVolume(volumeName, tarPath string, force bool) error {
 		return fmt.Errorf("failed to create temp container: %w, output: %s", err, string(output))
 	}
 
-	cmd = exec.Command(runtime.Binary(), "cp", tarPath, tmpContainer+":/data/.")
+	cmd = exec.Command(runtime.Binary(), "cp", extractDir+"/.", tmpContainer+":/data/.")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		dockerRemove(tmpContainer)
 		return fmt.Errorf("failed to copy to volume: %w, output: %s", err, string(output))
@@ -534,7 +546,7 @@ func createContainers(workDir string) error {
 		for _, bind := range host.Binds {
 			parts := strings.Split(bind, ":")
 			if len(parts) >= 2 {
-				volumeName := generateVolumeName(svc.Name, parts[1])
+				volumeName := generateVolumeName(cName, parts[1])
 				binds = append(binds, volumeName+":"+strings.Join(parts[1:], ":"))
 			} else {
 				binds = append(binds, bind)

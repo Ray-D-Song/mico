@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/ray-d-song/mico/pkg/runtime"
 	"github.com/ray-d-song/mico/pkg/utils"
 )
 
@@ -39,7 +40,7 @@ func (v *VolumeBackup) BackupOne(ctx context.Context, containerName string) erro
 		switch mnt.Type {
 		case "volume":
 			volumePath := filepath.Join(servicePath, "volume", mnt.Name+".tar")
-			if err := v.backupVolume(ctx, mnt.Source, volumePath); err != nil {
+			if err := v.backupVolume(ctx, mnt.Name, volumePath); err != nil {
 				return fmt.Errorf("failed to backup volume %s: %w", mnt.Name, err)
 			}
 		case "bind":
@@ -65,22 +66,27 @@ func escapePath(path string) string {
 	return result
 }
 
-func (v *VolumeBackup) backupVolume(ctx context.Context, sourcePath, destPath string) error {
-	_, err := os.Stat(sourcePath)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("failed to stat volume path: %w", err)
-	}
-
+func (v *VolumeBackup) backupVolume(ctx context.Context, volumeName, destPath string) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return fmt.Errorf("failed to create volume dir: %w", err)
 	}
 
-	cmd := exec.Command("tar", "-cf", destPath, "-C", sourcePath, ".")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("tar failed: %w, output: %s", err, string(output))
+	f, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("failed to create dest file: %w", err)
+	}
+	defer f.Close()
+
+	// Use a temp container to read volume data — works across Docker/Podman/Orbstack
+	cmd := exec.Command(runtime.Binary(), "run", "--rm",
+		"-v", volumeName+":/data:ro",
+		"alpine:latest",
+		"tar", "-cf", "-", "-C", "/data", ".")
+	cmd.Stdout = f
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to backup volume %s: %w", volumeName, err)
 	}
 	return nil
 }

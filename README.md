@@ -1,4 +1,6 @@
-# Mico
+<div align="center">
+  <img src="assets/logo.svg" alt="mico" width="260" height="70">
+</div>
 
 > **Mi**grate **Co**ntainers — painless Docker container migration between servers.
 
@@ -20,6 +22,13 @@ Mico is a CLI tool that packs all running Docker containers (images, configs, vo
 > Bind mounts (`-v /host/path:/container/path`) are converted to named volumes after migration, since the target server may not replicate the same directory paths.
 
 ## Installation
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew tap ray-d-song/mico
+brew install mico
+```
 
 ### Shell (Linux / macOS)
 

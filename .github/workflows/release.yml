@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
@@ -67,3 +68,30 @@ jobs:
             mico_*
             checksums.txt
           generate_release_notes: true
+
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DARWIN_AMD64_SHA=$(grep 'mico_darwin_amd64' checksums.txt | awk '{print $1}')
+          DARWIN_ARM64_SHA=$(grep 'mico_darwin_arm64' checksums.txt | awk '{print $1}')
+          LINUX_AMD64_SHA=$(grep 'mico_linux_amd64' checksums.txt | awk '{print $1}')
+          LINUX_ARM64_SHA=$(grep 'mico_linux_arm64' checksums.txt | awk '{print $1}')
+
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/Ray-D-Song/homebrew-mico.git /tmp/homebrew-mico
+
+          FORMULA="/tmp/homebrew-mico/Formula/mico.rb"
+          sed -i "s|version \".*\"|version \"${VERSION}\"|" "$FORMULA"
+          sed -i "s|https://github.com/Ray-D-Song/mico/releases/download/v[^/]*|https://github.com/Ray-D-Song/mico/releases/download/v${VERSION}|g" "$FORMULA"
+          sed -i "/mico_darwin_amd64/{n;s|sha256 \".*\"|sha256 \"${DARWIN_AMD64_SHA}\"|}" "$FORMULA"
+          sed -i "/mico_darwin_arm64/{n;s|sha256 \".*\"|sha256 \"${DARWIN_ARM64_SHA}\"|}" "$FORMULA"
+          sed -i "/mico_linux_amd64/{n;s|sha256 \".*\"|sha256 \"${LINUX_AMD64_SHA}\"|}" "$FORMULA"
+          sed -i "/mico_linux_arm64/{n;s|sha256 \".*\"|sha256 \"${LINUX_ARM64_SHA}\"|}" "$FORMULA"
+
+          cd /tmp/homebrew-mico
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Update mico to v${VERSION}"
+          git push

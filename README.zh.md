@@ -1,4 +1,6 @@
-# Mico
+<div align="center">
+  <img src="assets/logo.svg" alt="mico" width="260" height="70">
+</div>
 
 > **Mi**grate **Co**ntainers —— Docker 容器跨服务器无痛迁移工具。
 
@@ -18,6 +20,13 @@ Mico 是一个 CLI 工具，在源服务器上将所有运行中的 Docker 容�
 > Bind 挂载（`-v /host/path:/container/path`）在迁移后会转为命名卷，因为目标服务器上可能无法重现文件夹路径。
 
 ## 安装
+
+### Homebrew（macOS / Linux）
+
+```bash
+brew tap ray-d-song/mico
+brew install mico
+```
 
 ### Shell（Linux / macOS）
 

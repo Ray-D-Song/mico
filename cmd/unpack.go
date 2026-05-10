@@ -22,6 +22,7 @@ import (
 var (
 	verifyChecksum bool
 	forceRestore   bool
+	loadImage      = docker.LoadImage
 )
 
 var unpackCmd = &cobra.Command{
@@ -215,8 +216,8 @@ func loadImages(workDir string) error {
 	}
 
 	var wg sync.WaitGroup
-	var loadErr error
 	sem := make(chan struct{}, concurrent)
+	results := make(chan error, len(entries))
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -234,14 +235,23 @@ func loadImages(workDir string) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			if err := docker.LoadImage(path); err != nil {
-				loadErr = err
-			}
+			results <- loadImage(path)
 		}(imagePath)
 	}
 
-	wg.Wait()
-	return loadErr
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var firstErr error
+	for err := range results {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
 }
 
 func restoreVolumes(workDir string) error {

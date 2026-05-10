@@ -21,7 +21,8 @@ import (
 
 var (
 	verifyChecksum bool
-	forceRestore bool
+	forceRestore   bool
+	loadImage      = docker.LoadImage
 )
 
 var unpackCmd = &cobra.Command{
@@ -179,8 +180,8 @@ func loadImages(workDir string) error {
 	}
 
 	var wg sync.WaitGroup
-	var loadErr error
 	sem := make(chan struct{}, concurrent)
+	results := make(chan error, len(entries))
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -198,14 +199,23 @@ func loadImages(workDir string) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			if err := docker.LoadImage(path); err != nil {
-				loadErr = err
-			}
+			results <- loadImage(path)
 		}(imagePath)
 	}
 
-	wg.Wait()
-	return loadErr
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var firstErr error
+	for err := range results {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
 }
 
 func restoreVolumes(workDir string) error {
@@ -518,9 +528,9 @@ func createContainers(workDir string) error {
 		}
 
 		var cfg struct {
-			Image       string   `json:"Image"`
-			Cmd        []string `json:"Cmd"`
-			Env        []string `json:"Env"`
+			Image        string                 `json:"Image"`
+			Cmd          []string               `json:"Cmd"`
+			Env          []string               `json:"Env"`
 			ExposedPorts map[string]interface{} `json:"ExposedPorts"`
 		}
 		if err := json.Unmarshal(cfgData, &cfg); err != nil {
@@ -528,7 +538,7 @@ func createContainers(workDir string) error {
 		}
 
 		var host struct {
-			NetworkMode   string `json:"NetworkMode"`
+			NetworkMode  string   `json:"NetworkMode"`
 			Binds        []string `json:"Binds"`
 			PortBindings map[string][]struct {
 				HostIP   string `json:"HostIp"`

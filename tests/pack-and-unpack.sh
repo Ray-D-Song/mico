@@ -13,6 +13,8 @@ cleanup() {
     echo -e "\n${BLUE}--- Cleanup ---${NC}"
     cd "$SCRIPT_DIR"
     docker compose down -v 2>/dev/null || true
+    docker rm -f mico-db mico-web mico-redis 2>/dev/null || true
+    docker volume ls -q | grep '^mico_mico-' | xargs -r docker volume rm 2>/dev/null || true
     docker network rm tests_mico-net 2>/dev/null || true
     rm -f mico-test-*.zst mico-test-*.zst.sha256 2>/dev/null || true
 }
@@ -35,7 +37,7 @@ docker compose ps
 
 echo -e "\n${BLUE}3. Packing containers...${NC}"
 ARCHIVE="mico-test-$(date +%s).zst"
-"$PROJECT_DIR/mico" pack -o "$SCRIPT_DIR/$ARCHIVE"
+"$PROJECT_DIR/mico" pack -c mico-db,mico-web,mico-redis -o "$SCRIPT_DIR/$ARCHIVE"
 ls -lh "$SCRIPT_DIR/$ARCHIVE"*
 
 echo -e "\n${BLUE}4. Stopping and removing all containers and volumes...${NC}"
@@ -57,6 +59,13 @@ if [ -z "$CONTAINERS" ]; then
 fi
 echo "Containers restored: $CONTAINERS"
 
-docker compose ps 2>/dev/null || docker ps --filter "name=mico-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+for expected in mico-db mico-web mico-redis; do
+    if ! docker ps -a --format '{{.Names}}' | grep -qx "$expected"; then
+        echo -e "${RED}FAIL: $expected was not restored${NC}"
+        exit 1
+    fi
+done
+
+docker ps --filter "name=mico-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
 echo -e "\n${GREEN}PASS: Pack/unpack round-trip succeeded${NC}"

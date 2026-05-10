@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	outputPath   string
+	outputPath  string
 	containers  string
 	incremental bool
 )
@@ -147,15 +147,15 @@ Examples:
 
 		imageItems := make([]struct {
 			ContainerName string
-			ImageRef     string
+			ImageRef      string
 		}, len(needPackContainers))
 		for i, c := range needPackContainers {
 			imageItems[i] = struct {
 				ContainerName string
-				ImageRef     string
+				ImageRef      string
 			}{
 				ContainerName: cleanContainerName(c.Names),
-				ImageRef:     c.Image,
+				ImageRef:      c.Image,
 			}
 		}
 
@@ -207,19 +207,19 @@ Examples:
 		var manifest core.PackageManifest
 		if incremental {
 			manifest = core.PackageManifest{
-				Version:    "1.0",
-				CreatedAt: time.Now(),
-				Project:   depGraph.Project,
-				Networks:  collectNetworks(needPackContainers),
-				Services:  buildServices(depGraph, needPackContainers),
+				Version:     "1.0",
+				CreatedAt:   time.Now(),
+				Project:     depGraph.Project,
+				Networks:    collectNetworks(needPackContainers),
+				Services:    buildServices(depGraph, needPackContainers),
 				Incremental: true,
-				BasePack:     lastManifest.PackageHash,
+				BasePack:    lastManifest.PackageHash,
 			}
 		} else {
 			networks := collectNetworks(containerList)
 			services := buildServices(depGraph, containerList)
 			manifest = core.PackageManifest{
-				Version:    "1.0",
+				Version:   "1.0",
 				CreatedAt: time.Now(),
 				Project:   depGraph.Project,
 				Networks:  networks,
@@ -279,15 +279,19 @@ func init() {
 func collectNetworks(containers []container.Summary) []string {
 	networkSet := make(map[string]bool)
 	for _, c := range containers {
-		for _, network := range c.NetworkSettings.Networks {
-			if network != nil {
-				networkSet[network.NetworkID] = true
+		if c.NetworkSettings == nil {
+			continue
+		}
+		for networkName := range c.NetworkSettings.Networks {
+			if isBuiltinNetwork(networkName) {
+				continue
 			}
+			networkSet[networkName] = true
 		}
 	}
 	networks := make([]string, 0, len(networkSet))
-	for networkID := range networkSet {
-		networks = append(networks, networkID)
+	for networkName := range networkSet {
+		networks = append(networks, networkName)
 	}
 	return networks
 }

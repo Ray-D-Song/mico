@@ -636,57 +636,7 @@ func createContainers(workDir string) error {
 }
 
 func topologicalSortCreate(services []core.Service) []core.Service {
-	if len(services) <= 1 {
-		return services
-	}
-
-	inDegree := make(map[string]int)
-	graph := make(map[string][]string)
-	allNames := make(map[string]bool)
-
-	for _, s := range services {
-		allNames[s.Name] = true
-		inDegree[s.Name] = 0
-	}
-
-	for _, s := range services {
-		for _, dep := range s.DependsOn {
-			graph[dep] = append(graph[dep], s.Name)
-			inDegree[s.Name]++
-		}
-	}
-
-	queue := make([]string, 0)
-	for name, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, name)
-		}
-	}
-
-	result := make([]core.Service, 0, len(services))
-	order := 0
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-
-		for _, s := range services {
-			if s.Name == current {
-				s.StartOrder = order
-				result = append(result, s)
-				order++
-				break
-			}
-		}
-
-		for _, next := range graph[current] {
-			inDegree[next]--
-			if inDegree[next] == 0 {
-				queue = append(queue, next)
-			}
-		}
-	}
-
-	return result
+	return sortServicesByDeps(services)
 }
 
 func isBuiltinNetwork(name string) bool {

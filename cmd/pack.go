@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	outputPath   string
+	outputPath  string
 	containers  string
 	incremental bool
 )
@@ -147,15 +147,15 @@ Examples:
 
 		imageItems := make([]struct {
 			ContainerName string
-			ImageRef     string
+			ImageRef      string
 		}, len(needPackContainers))
 		for i, c := range needPackContainers {
 			imageItems[i] = struct {
 				ContainerName string
-				ImageRef     string
+				ImageRef      string
 			}{
 				ContainerName: cleanContainerName(c.Names),
-				ImageRef:     c.Image,
+				ImageRef:      c.Image,
 			}
 		}
 
@@ -207,19 +207,19 @@ Examples:
 		var manifest core.PackageManifest
 		if incremental {
 			manifest = core.PackageManifest{
-				Version:    "1.0",
-				CreatedAt: time.Now(),
-				Project:   depGraph.Project,
-				Networks:  collectNetworks(needPackContainers),
-				Services:  buildServices(depGraph, needPackContainers),
+				Version:     "1.0",
+				CreatedAt:   time.Now(),
+				Project:     depGraph.Project,
+				Networks:    collectNetworks(needPackContainers),
+				Services:    buildServices(depGraph, needPackContainers),
 				Incremental: true,
-				BasePack:     lastManifest.PackageHash,
+				BasePack:    lastManifest.PackageHash,
 			}
 		} else {
 			networks := collectNetworks(containerList)
 			services := buildServices(depGraph, containerList)
 			manifest = core.PackageManifest{
-				Version:    "1.0",
+				Version:   "1.0",
 				CreatedAt: time.Now(),
 				Project:   depGraph.Project,
 				Networks:  networks,
@@ -303,18 +303,20 @@ func buildServices(depGraph deps.DepAnalysis, containers []container.Summary) []
 	for _, info := range depGraph.Containers {
 		var ports []string
 		c, ok := containerMap[info.ContainerName]
-		if ok {
-			for _, port := range c.Ports {
-				if port.PublicPort > 0 {
-					ports = append(ports, fmt.Sprintf("%d/%s", port.PublicPort, port.Type))
-				}
+		if !ok {
+			continue
+		}
+
+		for _, port := range c.Ports {
+			if port.PublicPort > 0 {
+				ports = append(ports, fmt.Sprintf("%d/%s", port.PublicPort, port.Type))
 			}
 		}
 
 		services = append(services, core.Service{
 			Name:          info.ServiceName,
 			ContainerName: info.ContainerName,
-			Image:         getImageFromContainer(info.ContainerName),
+			Image:         c.Image,
 			DependsOn:     info.DependsOn,
 			StartOrder:    0,
 			Ports:         ports,
@@ -325,66 +327,8 @@ func buildServices(depGraph deps.DepAnalysis, containers []container.Summary) []
 	return sorted
 }
 
-func getImageFromContainer(containerName string) string {
-	client := docker.GetClient()
-	resp, err := client.ContainerInspect(nil, containerName)
-	if err != nil {
-		return ""
-	}
-	return resp.Config.Image
-}
-
 func topologicalSort(services []core.Service) []core.Service {
-	if len(services) <= 1 {
-		return services
-	}
-
-	inDegree := make(map[string]int)
-	graph := make(map[string][]string)
-	allNames := make(map[string]bool)
-
-	for _, s := range services {
-		allNames[s.Name] = true
-		if _, ok := inDegree[s.Name]; !ok {
-			inDegree[s.Name] = 0
-		}
-		for _, dep := range s.DependsOn {
-			graph[dep] = append(graph[dep], s.Name)
-			inDegree[s.Name]++
-		}
-	}
-
-	queue := make([]string, 0)
-	for name, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, name)
-		}
-	}
-
-	result := make([]core.Service, 0, len(services))
-	order := 0
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-
-		for _, s := range services {
-			if s.Name == current {
-				s.StartOrder = order
-				result = append(result, s)
-				order++
-				break
-			}
-		}
-
-		for _, next := range graph[current] {
-			inDegree[next]--
-			if inDegree[next] == 0 {
-				queue = append(queue, next)
-			}
-		}
-	}
-
-	return result
+	return sortServicesByDeps(services)
 }
 
 func cleanContainerName(names []string) string {

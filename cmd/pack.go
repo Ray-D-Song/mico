@@ -279,15 +279,19 @@ func init() {
 func collectNetworks(containers []container.Summary) []string {
 	networkSet := make(map[string]bool)
 	for _, c := range containers {
-		for _, network := range c.NetworkSettings.Networks {
-			if network != nil {
-				networkSet[network.NetworkID] = true
+		if c.NetworkSettings == nil {
+			continue
+		}
+		for networkName := range c.NetworkSettings.Networks {
+			if isBuiltinNetwork(networkName) {
+				continue
 			}
+			networkSet[networkName] = true
 		}
 	}
 	networks := make([]string, 0, len(networkSet))
-	for networkID := range networkSet {
-		networks = append(networks, networkID)
+	for networkName := range networkSet {
+		networks = append(networks, networkName)
 	}
 	return networks
 }

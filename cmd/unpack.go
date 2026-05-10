@@ -445,19 +445,26 @@ func restoreNetworks(workDir string) error {
 	}
 
 	networkSet := make(map[string]bool)
-	for _, networkID := range manifest.Networks {
-		networkSet[networkID] = true
+	for _, networkName := range manifest.Networks {
+		if networkName == "" || isBuiltinNetwork(networkName) || isLikelyNetworkID(networkName) {
+			continue
+		}
+		networkSet[networkName] = true
 	}
 
-	for networkID := range networkSet {
-		cmd := exec.Command(runtime.Binary(), "network", "inspect", networkID)
-		if err := cmd.Run(); err != nil {
-			cmd = exec.Command(runtime.Binary(), "network", "create", networkID)
-			if output, err := cmd.CombinedOutput(); err != nil {
-				fmt.Printf("network create output: %s\n", string(output))
-			}
+	ensured := make(map[string]bool)
+	ensureOnce := func(networkName string) error {
+		if ensured[networkName] {
+			return nil
 		}
-		utils.PrintS("Network ready: %s\n", networkID[:12])
+		ensured[networkName] = true
+		return ensureNetwork(networkName)
+	}
+
+	for networkName := range networkSet {
+		if err := ensureOnce(networkName); err != nil {
+			return err
+		}
 	}
 
 	entries, err := os.ReadDir(workDir)
@@ -490,17 +497,27 @@ func restoreNetworks(workDir string) error {
 			if isBuiltinNetwork(networkName) {
 				continue
 			}
-			cmd := exec.Command(runtime.Binary(), "network", "inspect", networkName)
-			if err := cmd.Run(); err != nil {
-				cmd = exec.Command(runtime.Binary(), "network", "create", networkName)
-				if output, err := cmd.CombinedOutput(); err != nil {
-					fmt.Printf("network create output: %s\n", string(output))
-				}
-				utils.PrintS("Network created: %s\n", networkName)
+			if err := ensureOnce(networkName); err != nil {
+				return err
 			}
 		}
 	}
 
+	return nil
+}
+
+func ensureNetwork(networkName string) error {
+	cmd := exec.Command(runtime.Binary(), "network", "inspect", networkName)
+	if err := cmd.Run(); err == nil {
+		utils.PrintS("Network ready: %s\n", networkName)
+		return nil
+	}
+
+	cmd = exec.Command(runtime.Binary(), "network", "create", networkName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create network %s: %w, output: %s", networkName, err, string(output))
+	}
+	utils.PrintS("Network created: %s\n", networkName)
 	return nil
 }
 
@@ -645,6 +662,19 @@ func isBuiltinNetwork(name string) bool {
 		return true
 	}
 	return false
+}
+
+func isLikelyNetworkID(name string) bool {
+	if len(name) < 32 {
+		return false
+	}
+	for _, c := range name {
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func getStartOrderNames(services []core.Service) []string {

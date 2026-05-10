@@ -21,7 +21,7 @@ import (
 
 var (
 	verifyChecksum bool
-	forceRestore bool
+	forceRestore   bool
 )
 
 var unpackCmd = &cobra.Command{
@@ -147,18 +147,21 @@ func extractTar(tarPath, destDir string) error {
 			return err
 		}
 
-		target := filepath.Join(destDir, header.Name)
+		target, err := safeTarTarget(destDir, header.Name)
+		if err != nil {
+			return err
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0755); err != nil {
 				return err
 			}
-		case tar.TypeReg:
+		case tar.TypeReg, tar.TypeRegA:
 			if err := utils.EnsureFile(target); err != nil {
 				return err
 			}
-			w, err := os.Create(target)
+			w, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, header.FileInfo().Mode())
 			if err != nil {
 				return err
 			}
@@ -166,10 +169,43 @@ func extractTar(tarPath, destDir string) error {
 				w.Close()
 				return err
 			}
-			w.Close()
+			if err := w.Close(); err != nil {
+				return err
+			}
+		case tar.TypeSymlink, tar.TypeLink:
+			return fmt.Errorf("refusing to extract link %q", header.Name)
 		}
 	}
 	return nil
+}
+
+func safeTarTarget(destDir, name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("invalid empty tar entry name")
+	}
+
+	cleanName := filepath.Clean(name)
+	if filepath.IsAbs(cleanName) || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("tar entry %q escapes destination", name)
+	}
+
+	destAbs, err := filepath.Abs(destDir)
+	if err != nil {
+		return "", err
+	}
+	targetAbs, err := filepath.Abs(filepath.Join(destAbs, cleanName))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(destAbs, targetAbs)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("tar entry %q escapes destination", name)
+	}
+
+	return targetAbs, nil
 }
 
 func loadImages(workDir string) error {
@@ -179,8 +215,8 @@ func loadImages(workDir string) error {
 	}
 
 	var wg sync.WaitGroup
-	var loadErr error
 	sem := make(chan struct{}, concurrent)
+	results := make(chan error, len(entries))
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -198,14 +234,22 @@ func loadImages(workDir string) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			if err := docker.LoadImage(path); err != nil {
-				loadErr = err
-			}
+			results <- docker.LoadImage(path)
 		}(imagePath)
 	}
 
-	wg.Wait()
-	return loadErr
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for err := range results {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func restoreVolumes(workDir string) error {
@@ -409,19 +453,26 @@ func restoreNetworks(workDir string) error {
 	}
 
 	networkSet := make(map[string]bool)
-	for _, networkID := range manifest.Networks {
-		networkSet[networkID] = true
+	for _, networkName := range manifest.Networks {
+		if networkName == "" || isBuiltinNetwork(networkName) || isLikelyNetworkID(networkName) {
+			continue
+		}
+		networkSet[networkName] = true
 	}
 
-	for networkID := range networkSet {
-		cmd := exec.Command(runtime.Binary(), "network", "inspect", networkID)
-		if err := cmd.Run(); err != nil {
-			cmd = exec.Command(runtime.Binary(), "network", "create", networkID)
-			if output, err := cmd.CombinedOutput(); err != nil {
-				fmt.Printf("network create output: %s\n", string(output))
-			}
+	ensured := make(map[string]bool)
+	ensureOnce := func(networkName string) error {
+		if ensured[networkName] {
+			return nil
 		}
-		utils.PrintS("Network ready: %s\n", networkID[:12])
+		ensured[networkName] = true
+		return ensureNetwork(networkName)
+	}
+
+	for networkName := range networkSet {
+		if err := ensureOnce(networkName); err != nil {
+			return err
+		}
 	}
 
 	entries, err := os.ReadDir(workDir)
@@ -454,17 +505,27 @@ func restoreNetworks(workDir string) error {
 			if isBuiltinNetwork(networkName) {
 				continue
 			}
-			cmd := exec.Command(runtime.Binary(), "network", "inspect", networkName)
-			if err := cmd.Run(); err != nil {
-				cmd = exec.Command(runtime.Binary(), "network", "create", networkName)
-				if output, err := cmd.CombinedOutput(); err != nil {
-					fmt.Printf("network create output: %s\n", string(output))
-				}
-				utils.PrintS("Network created: %s\n", networkName)
+			if err := ensureOnce(networkName); err != nil {
+				return err
 			}
 		}
 	}
 
+	return nil
+}
+
+func ensureNetwork(networkName string) error {
+	cmd := exec.Command(runtime.Binary(), "network", "inspect", networkName)
+	if err := cmd.Run(); err == nil {
+		utils.PrintS("Network ready: %s\n", networkName)
+		return nil
+	}
+
+	cmd = exec.Command(runtime.Binary(), "network", "create", networkName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create network %s: %w, output: %s", networkName, err, string(output))
+	}
+	utils.PrintS("Network created: %s\n", networkName)
 	return nil
 }
 
@@ -518,9 +579,9 @@ func createContainers(workDir string) error {
 		}
 
 		var cfg struct {
-			Image       string   `json:"Image"`
-			Cmd        []string `json:"Cmd"`
-			Env        []string `json:"Env"`
+			Image        string                 `json:"Image"`
+			Cmd          []string               `json:"Cmd"`
+			Env          []string               `json:"Env"`
 			ExposedPorts map[string]interface{} `json:"ExposedPorts"`
 		}
 		if err := json.Unmarshal(cfgData, &cfg); err != nil {
@@ -528,7 +589,7 @@ func createContainers(workDir string) error {
 		}
 
 		var host struct {
-			NetworkMode   string `json:"NetworkMode"`
+			NetworkMode  string   `json:"NetworkMode"`
 			Binds        []string `json:"Binds"`
 			PortBindings map[string][]struct {
 				HostIP   string `json:"HostIp"`
@@ -600,57 +661,7 @@ func createContainers(workDir string) error {
 }
 
 func topologicalSortCreate(services []core.Service) []core.Service {
-	if len(services) <= 1 {
-		return services
-	}
-
-	inDegree := make(map[string]int)
-	graph := make(map[string][]string)
-	allNames := make(map[string]bool)
-
-	for _, s := range services {
-		allNames[s.Name] = true
-		inDegree[s.Name] = 0
-	}
-
-	for _, s := range services {
-		for _, dep := range s.DependsOn {
-			graph[dep] = append(graph[dep], s.Name)
-			inDegree[s.Name]++
-		}
-	}
-
-	queue := make([]string, 0)
-	for name, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, name)
-		}
-	}
-
-	result := make([]core.Service, 0, len(services))
-	order := 0
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-
-		for _, s := range services {
-			if s.Name == current {
-				s.StartOrder = order
-				result = append(result, s)
-				order++
-				break
-			}
-		}
-
-		for _, next := range graph[current] {
-			inDegree[next]--
-			if inDegree[next] == 0 {
-				queue = append(queue, next)
-			}
-		}
-	}
-
-	return result
+	return sortServicesByDeps(services)
 }
 
 func isBuiltinNetwork(name string) bool {
@@ -659,6 +670,19 @@ func isBuiltinNetwork(name string) bool {
 		return true
 	}
 	return false
+}
+
+func isLikelyNetworkID(name string) bool {
+	if len(name) < 32 {
+		return false
+	}
+	for _, c := range name {
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func getStartOrderNames(services []core.Service) []string {

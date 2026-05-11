@@ -329,6 +329,7 @@ func sourceVolumeName(source string) string {
 }
 
 func generateVolumeName(containerName, destPath string) string {
+	destPath = strings.TrimRight(destPath, "/")
 	hash := quickHash(containerName + destPath)
 	return fmt.Sprintf("mico_%s_%s", containerName, hash[:8])
 }
@@ -609,8 +610,9 @@ func createContainers(workDir string) error {
 		for _, bind := range host.Binds {
 			parts := strings.Split(bind, ":")
 			if len(parts) >= 2 {
-				volumeName := generateVolumeName(cName, parts[1])
-				binds = append(binds, volumeName+":"+strings.Join(parts[1:], ":"))
+				dest := strings.TrimRight(parts[1], "/")
+				volumeName := generateVolumeName(cName, dest)
+				binds = append(binds, volumeName+":"+dest)
 			} else {
 				binds = append(binds, bind)
 			}

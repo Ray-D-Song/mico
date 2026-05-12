@@ -1,4 +1,4 @@
-.PHONY: build test preview clean
+.PHONY: build test preview clean e2e
 
 # Build the binary
 build:
@@ -7,6 +7,10 @@ build:
 # Run unit tests
 test:
 	go test -v ./...
+
+# Run end-to-end tests
+e2e:
+	./tests/pack-and-unpack.sh
 
 # Preview/dry run - build and run with sample parameters
 preview: build

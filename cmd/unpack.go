@@ -406,7 +406,7 @@ func dockerRemove(name string) {
 }
 
 func checkPortsConflict(workDir string) error {
-	manifestPath := filepath.Join(workDir, "manifest.json")
+	manifestPath := utils.GetLastManifestPath()
 	if !utils.FileExists(manifestPath) {
 		return nil
 	}
@@ -443,7 +443,7 @@ func checkPortsConflict(workDir string) error {
 }
 
 func restoreNetworks(workDir string) error {
-	manifestPath := filepath.Join(workDir, "manifest.json")
+	manifestPath := utils.GetLastManifestPath()
 	if !utils.FileExists(manifestPath) {
 		return nil
 	}
@@ -536,7 +536,7 @@ func ensureNetwork(networkName string) error {
 }
 
 func createContainers(workDir string) error {
-	manifestPath := filepath.Join(workDir, "manifest.json")
+	manifestPath := utils.GetLastManifestPath()
 	if !utils.FileExists(manifestPath) {
 		return fmt.Errorf("manifest not found")
 	}

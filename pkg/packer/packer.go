@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,11 +19,11 @@ import (
 type InspectConfig = func(containerName string) (*container.Config, error)
 
 type PackOptions struct {
-	OutputPath     string
-	Containers     string
-	Incremental    bool
-	Concurrent     int
-	InspectConfig  InspectConfig
+	OutputPath    string
+	Containers    string
+	Incremental   bool
+	Concurrent    int
+	InspectConfig InspectConfig
 }
 
 func Pack(ctx context.Context, opts PackOptions) {
@@ -215,7 +214,7 @@ func Pack(ctx context.Context, opts PackOptions) {
 		}
 	}
 
-	manifestPath := filepath.Join(workDir, "manifest.json")
+	manifestPath := utils.GetLastManifestPath()
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		utils.PrintErrMsg(utils.ErrPackCreate, err)
@@ -386,5 +385,3 @@ func sameStringSet(a, b []string) bool {
 	}
 	return len(counts) == 0
 }
-
-

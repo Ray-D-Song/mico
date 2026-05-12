@@ -3,9 +3,9 @@ package cmd
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,7 +36,7 @@ func TestCreateContainersReturnsRunErrors(t *testing.T) {
 func writeCreateContainerFixture(t *testing.T, workDir, containerName string) {
 	t.Helper()
 
-	require.NoError(t, os.WriteFile(filepath.Join(workDir, "manifest.json"), []byte(`{
+	require.NoError(t, os.WriteFile(utils.ManifestPath(workDir), []byte(`{
   "version": "1.0",
   "services": [
     {
@@ -47,10 +47,10 @@ func writeCreateContainerFixture(t *testing.T, workDir, containerName string) {
   ]
 }`), 0644))
 
-	configDir := filepath.Join(workDir, containerName, "config")
+	configDir := utils.ServiceConfigDir(workDir, containerName)
 	require.NoError(t, os.MkdirAll(configDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{
+	require.NoError(t, os.WriteFile(utils.ServiceConfigJSON(workDir, containerName), []byte(`{
   "Image": "alpine:latest"
 }`), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(configDir, "host.json"), []byte(`{}`), 0644))
+	require.NoError(t, os.WriteFile(utils.ServiceHostJSON(workDir, containerName), []byte(`{}`), 0644))
 }

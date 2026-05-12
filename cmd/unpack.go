@@ -227,7 +227,7 @@ func loadImages(workDir string) error {
 			continue
 		}
 
-		imagePath := filepath.Join(workDir, entry.Name(), "image", "image.tar")
+		imagePath := utils.ServiceImageTar(workDir, entry.Name())
 		if !utils.FileExists(imagePath) {
 			continue
 		}
@@ -269,7 +269,7 @@ func restoreVolumes(workDir string) error {
 		}
 
 		containerName := entry.Name()
-		mountsPath := filepath.Join(workDir, containerName, "config", "mounts.json")
+		mountsPath := utils.ServiceMountsJSON(workDir, containerName)
 
 		if !utils.FileExists(mountsPath) {
 			continue
@@ -289,7 +289,7 @@ func restoreVolumes(workDir string) error {
 			switch mnt.Type {
 			case "bind":
 				volumeName := generateVolumeName(containerName, mnt.Destination)
-				bindTarPath := filepath.Join(workDir, containerName, "bind", escapePath(mnt.Destination)+".tar")
+				bindTarPath := utils.ServiceBindTar(workDir, containerName, mnt.Destination)
 
 				if err := restoreBindVolume(volumeName, bindTarPath, forceRestore); err != nil {
 					return fmt.Errorf("failed to restore volume for %s: %w", mnt.Destination, err)
@@ -300,7 +300,7 @@ func restoreVolumes(workDir string) error {
 			case "volume":
 				srcVolName := sourceVolumeName(mnt.Source)
 				volumeName := generateVolumeName(containerName, mnt.Destination)
-				volTarPath := filepath.Join(workDir, containerName, "volume", srcVolName+".tar")
+				volTarPath := utils.ServiceVolumeTar(workDir, containerName, srcVolName)
 
 				if err := restoreBindVolume(volumeName, volTarPath, forceRestore); err != nil {
 					return fmt.Errorf("failed to restore volume %s: %w", srcVolName, err)
@@ -343,18 +343,6 @@ func quickHash(s string) string {
 		h = h*31 + int(c) + i
 	}
 	return fmt.Sprintf("%x", h)
-}
-
-func escapePath(path string) string {
-	result := ""
-	for _, c := range path {
-		if c == '/' || c == ':' {
-			result += "_"
-		} else {
-			result += string(c)
-		}
-	}
-	return result
 }
 
 func restoreBindVolume(volumeName, tarPath string, force bool) error {
@@ -406,7 +394,7 @@ func dockerRemove(name string) {
 }
 
 func checkPortsConflict(workDir string) error {
-	manifestPath := utils.GetLastManifestPath()
+	manifestPath := utils.ManifestPath(workDir)
 	if !utils.FileExists(manifestPath) {
 		return nil
 	}
@@ -443,7 +431,7 @@ func checkPortsConflict(workDir string) error {
 }
 
 func restoreNetworks(workDir string) error {
-	manifestPath := utils.GetLastManifestPath()
+	manifestPath := utils.ManifestPath(workDir)
 	if !utils.FileExists(manifestPath) {
 		return nil
 	}
@@ -490,7 +478,7 @@ func restoreNetworks(workDir string) error {
 		if !entry.IsDir() {
 			continue
 		}
-		networkPath := filepath.Join(workDir, entry.Name(), "config", "network.json")
+		networkPath := utils.ServiceNetworkJSON(workDir, entry.Name())
 		if !utils.FileExists(networkPath) {
 			continue
 		}
@@ -536,7 +524,7 @@ func ensureNetwork(networkName string) error {
 }
 
 func createContainers(workDir string) error {
-	manifestPath := utils.GetLastManifestPath()
+	manifestPath := utils.ManifestPath(workDir)
 	if !utils.FileExists(manifestPath) {
 		return fmt.Errorf("manifest not found")
 	}
@@ -564,13 +552,13 @@ func createContainers(workDir string) error {
 			cName = svc.Name
 		}
 
-		containerPath := filepath.Join(workDir, cName)
+		containerPath := utils.ServiceDir(workDir, cName)
 		if !utils.FileExists(containerPath) {
 			continue
 		}
 
-		configPath := filepath.Join(containerPath, "config", "config.json")
-		hostPath := filepath.Join(containerPath, "config", "host.json")
+		configPath := utils.ServiceConfigJSON(workDir, cName)
+		hostPath := utils.ServiceHostJSON(workDir, cName)
 		if !utils.FileExists(configPath) || !utils.FileExists(hostPath) {
 			continue
 		}

@@ -9,20 +9,8 @@ import (
 	"github.com/ray-d-song/mico/pkg/core"
 )
 
-const (
-	lastManifestFile = "last_manifest.json"
-)
-
-func getLastManifestPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".mico", lastManifestFile)
-}
-
 func LoadLastManifest() (*core.LastManifest, error) {
-	path := getLastManifestPath()
+	path := GetLastManifestPath()
 	if path == "" {
 		return nil, fmt.Errorf("failed to get home directory")
 	}
@@ -44,7 +32,7 @@ func LoadLastManifest() (*core.LastManifest, error) {
 }
 
 func SaveLastManifest(pkgHash string, manifest core.PackageManifest) error {
-	path := getLastManifestPath()
+	path := GetLastManifestPath()
 	if path == "" {
 		return fmt.Errorf("failed to get home directory")
 	}

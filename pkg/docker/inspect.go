@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/docker/docker/api/types/container"
@@ -28,10 +27,9 @@ func (i *Inspector) InspectOne(ctx context.Context, containerName string) (*cont
 		return nil, fmt.Errorf("failed to inspect container %s: %w", containerName, err)
 	}
 
-	servicePath := filepath.Join(i.workDir, containerName)
-	utils.EnsureDir(servicePath + "/config")
+	utils.EnsureDir(utils.ServiceConfigDir(i.workDir, containerName))
 
-	configPath := filepath.Join(servicePath, "config", "config.json")
+	configPath := utils.ServiceConfigJSON(i.workDir, containerName)
 	data, err := json.MarshalIndent(resp.Config, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
@@ -66,10 +64,9 @@ func (i *Inspector) SaveMounts(ctx context.Context, containerName string) (*core
 		Mounts:       mounts,
 	}
 
-	servicePath := filepath.Join(i.workDir, containerName)
-	utils.EnsureDir(servicePath + "/config")
+	utils.EnsureDir(utils.ServiceConfigDir(i.workDir, containerName))
 
-	mountsPath := filepath.Join(servicePath, "config", "mounts.json")
+	mountsPath := utils.ServiceMountsJSON(i.workDir, containerName)
 	data, err := json.MarshalIndent(containerMounts, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal mounts: %w", err)
@@ -89,10 +86,9 @@ func (i *Inspector) SaveHostConfig(ctx context.Context, containerName string) er
 		return fmt.Errorf("failed to inspect container %s: %w", containerName, err)
 	}
 
-	servicePath := filepath.Join(i.workDir, containerName)
-	utils.EnsureDir(servicePath + "/config")
+	utils.EnsureDir(utils.ServiceConfigDir(i.workDir, containerName))
 
-	hostPath := filepath.Join(servicePath, "config", "host.json")
+	hostPath := utils.ServiceHostJSON(i.workDir, containerName)
 	data, err := json.MarshalIndent(resp.HostConfig, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal host config: %w", err)
@@ -112,10 +108,9 @@ func (i *Inspector) SaveNetworkSettings(ctx context.Context, containerName strin
 		return fmt.Errorf("failed to inspect container %s: %w", containerName, err)
 	}
 
-	servicePath := filepath.Join(i.workDir, containerName)
-	utils.EnsureDir(servicePath + "/config")
+	utils.EnsureDir(utils.ServiceConfigDir(i.workDir, containerName))
 
-	networkPath := filepath.Join(servicePath, "config", "network.json")
+	networkPath := utils.ServiceNetworkJSON(i.workDir, containerName)
 	data, err := json.MarshalIndent(resp.NetworkSettings, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal network settings: %w", err)

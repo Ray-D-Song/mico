@@ -214,12 +214,13 @@ func Pack(ctx context.Context, opts PackOptions) {
 		}
 	}
 
-	manifestPath := utils.GetLastManifestPath()
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		utils.PrintErrMsg(utils.ErrPackCreate, err)
 		return
 	}
+
+	manifestPath := utils.ManifestPath(workDir)
 	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
 		utils.PrintErrMsg(utils.ErrPackCreate, err)
 		return

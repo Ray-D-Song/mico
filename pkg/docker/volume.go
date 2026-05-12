@@ -32,19 +32,18 @@ func (v *VolumeBackup) BackupOne(ctx context.Context, containerName string) erro
 		return nil
 	}
 
-	servicePath := filepath.Join(v.workDir, containerName)
-	utils.EnsureDir(servicePath + "/volume")
-	utils.EnsureDir(servicePath + "/bind")
+	utils.EnsureDir(utils.ServiceVolumeDir(v.workDir, containerName))
+	utils.EnsureDir(utils.ServiceBindDir(v.workDir, containerName))
 
 	for _, mnt := range resp.Mounts {
 		switch mnt.Type {
 		case "volume":
-			volumePath := filepath.Join(servicePath, "volume", mnt.Name+".tar")
+			volumePath := utils.ServiceVolumeTar(v.workDir, containerName, mnt.Name)
 			if err := v.backupVolume(ctx, mnt.Name, volumePath); err != nil {
 				return fmt.Errorf("failed to backup volume %s: %w", mnt.Name, err)
 			}
 		case "bind":
-			bindPath := filepath.Join(servicePath, "bind", escapePath(mnt.Destination)+".tar")
+			bindPath := utils.ServiceBindTar(v.workDir, containerName, mnt.Destination)
 			if err := v.backupBind(ctx, mnt.Source, bindPath); err != nil {
 				return fmt.Errorf("failed to backup bind %s: %w", mnt.Source, err)
 			}
@@ -52,18 +51,6 @@ func (v *VolumeBackup) BackupOne(ctx context.Context, containerName string) erro
 	}
 
 	return nil
-}
-
-func escapePath(path string) string {
-	result := ""
-	for _, c := range path {
-		if c == '/' || c == ':' {
-			result += "_"
-		} else {
-			result += string(c)
-		}
-	}
-	return result
 }
 
 func (v *VolumeBackup) backupVolume(ctx context.Context, volumeName, destPath string) error {

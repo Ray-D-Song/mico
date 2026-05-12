@@ -5,6 +5,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	"github.com/ray-d-song/mico/pkg/core"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +21,7 @@ func TestCollectNetworksUsesNamesAndSkipsBuiltins(t *testing.T) {
 		},
 	}
 
-	networks := collectNetworks(containers)
+	networks := core.CollectNetworks(containers)
 
 	require.Equal(t, []string{"tests_mico-net"}, networks)
 }

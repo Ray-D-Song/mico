@@ -1,4 +1,4 @@
-package cmd
+package packer
 
 import (
 	"testing"
@@ -75,7 +75,7 @@ func TestTopologicalSortIgnoresDependenciesOutsideArchive(t *testing.T) {
 		{Name: "web", ContainerName: "mico-web", DependsOn: []string{"db"}},
 	}
 
-	sorted := topologicalSort(services)
+	sorted := core.SortServicesByDeps(services)
 
 	require.Len(t, sorted, 1)
 	require.Equal(t, "web", sorted[0].Name)
@@ -89,7 +89,7 @@ func TestTopologicalSortOrdersInternalDependencies(t *testing.T) {
 		{Name: "worker", ContainerName: "mico-worker", DependsOn: []string{"db"}},
 	}
 
-	sorted := topologicalSort(services)
+	sorted := core.SortServicesByDeps(services)
 
 	require.Len(t, sorted, 3)
 	require.Equal(t, "db", sorted[0].Name)
@@ -105,7 +105,7 @@ func TestTopologicalSortKeepsServicesInCycles(t *testing.T) {
 		{Name: "b", DependsOn: []string{"a"}},
 	}
 
-	sorted := topologicalSort(services)
+	sorted := core.SortServicesByDeps(services)
 
 	require.Len(t, sorted, 2)
 	require.Equal(t, []string{"a", "b"}, []string{sorted[0].Name, sorted[1].Name})
@@ -137,7 +137,7 @@ func TestComputeDiffKeepsUnchangedComposeContainer(t *testing.T) {
 				{PrivatePort: 80, PublicPort: 0, Type: "tcp"},
 			},
 		},
-	})
+	}, inspectContainerConfig)
 
 	require.NoError(t, err)
 	require.Empty(t, changed)
@@ -163,7 +163,7 @@ func TestComputeDiffDetectsConfigChange(t *testing.T) {
 			Names: []string{"/mico-web"},
 			Image: "nginx:alpine",
 		},
-	})
+	}, inspectContainerConfig)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"mico-web"}, changed)
@@ -187,7 +187,7 @@ func TestComputeDiffSupportsOldManifestWithoutConfigHash(t *testing.T) {
 				{PublicPort: 8080, Type: "tcp"},
 			},
 		},
-	})
+	}, inspectContainerConfig)
 
 	require.NoError(t, err)
 	require.Empty(t, changed)

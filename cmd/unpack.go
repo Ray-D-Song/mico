@@ -158,7 +158,7 @@ func extractTar(tarPath, destDir string) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0755); err != nil {
+			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg, tar.TypeRegA:
@@ -460,7 +460,7 @@ func restoreNetworks(workDir string) error {
 
 	networkSet := make(map[string]bool)
 	for _, networkName := range manifest.Networks {
-		if networkName == "" || isBuiltinNetwork(networkName) || isLikelyNetworkID(networkName) {
+		if networkName == "" || core.IsBuiltinNetwork(networkName) || isLikelyNetworkID(networkName) {
 			continue
 		}
 		networkSet[networkName] = true
@@ -508,7 +508,7 @@ func restoreNetworks(workDir string) error {
 		}
 
 		for networkName := range networkSettings.Networks {
-			if isBuiltinNetwork(networkName) {
+			if core.IsBuiltinNetwork(networkName) {
 				continue
 			}
 			if err := ensureOnce(networkName); err != nil {
@@ -555,8 +555,7 @@ func createContainers(workDir string) error {
 		return fmt.Errorf("failed to restore networks: %w", err)
 	}
 
-	sortedServices := topologicalSortCreate(manifest.Services)
-	utils.PrintS("core.Services start order: %v\n", getStartOrderNames(sortedServices))
+	sortedServices := core.SortServicesByDeps(manifest.Services)
 
 	var createErrs []string
 	for _, svc := range sortedServices {
@@ -673,18 +672,6 @@ func createContainers(workDir string) error {
 	return nil
 }
 
-func topologicalSortCreate(services []core.Service) []core.Service {
-	return sortServicesByDeps(services)
-}
-
-func isBuiltinNetwork(name string) bool {
-	switch name {
-	case "bridge", "host", "none":
-		return true
-	}
-	return false
-}
-
 func isLikelyNetworkID(name string) bool {
 	if len(name) < 32 {
 		return false
@@ -696,12 +683,4 @@ func isLikelyNetworkID(name string) bool {
 		return false
 	}
 	return true
-}
-
-func getStartOrderNames(services []core.Service) []string {
-	names := make([]string, len(services))
-	for i, s := range services {
-		names[i] = s.Name
-	}
-	return names
 }

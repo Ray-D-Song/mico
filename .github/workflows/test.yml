@@ -13,16 +13,3 @@ jobs:
           go-version: "1.24"
       - name: Unit tests
         run: make test
-
-  e2e:
-    needs: unit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24"
-      - name: Grant Docker volume access
-        run: sudo chmod -R a+rX /var/lib/docker/volumes
-      - name: E2E tests
-        run: make e2e

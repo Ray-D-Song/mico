@@ -115,8 +115,10 @@ func TestTopologicalSortKeepsServicesInCycles(t *testing.T) {
 
 func TestComputeDiffKeepsUnchangedComposeContainer(t *testing.T) {
 	cfg := &container.Config{Image: "nginx:alpine", Env: []string{"A=B"}}
-	restoreInspect := stubInspectContainerConfig(t, cfg)
-	defer restoreInspect()
+	inspectFn := func(containerName string) (*container.Config, error) {
+		require.Equal(t, "mico-web", containerName)
+		return cfg, nil
+	}
 
 	changed, err := computeDiff(core.PackageManifest{
 		Services: []core.Service{
@@ -137,7 +139,7 @@ func TestComputeDiffKeepsUnchangedComposeContainer(t *testing.T) {
 				{PrivatePort: 80, PublicPort: 0, Type: "tcp"},
 			},
 		},
-	}, inspectContainerConfig)
+	}, inspectFn)
 
 	require.NoError(t, err)
 	require.Empty(t, changed)
@@ -146,8 +148,10 @@ func TestComputeDiffKeepsUnchangedComposeContainer(t *testing.T) {
 func TestComputeDiffDetectsConfigChange(t *testing.T) {
 	oldCfg := &container.Config{Image: "nginx:alpine", Env: []string{"A=B"}}
 	newCfg := &container.Config{Image: "nginx:alpine", Env: []string{"A=C"}}
-	restoreInspect := stubInspectContainerConfig(t, newCfg)
-	defer restoreInspect()
+	inspectFn := func(containerName string) (*container.Config, error) {
+		require.Equal(t, "mico-web", containerName)
+		return newCfg, nil
+	}
 
 	changed, err := computeDiff(core.PackageManifest{
 		Services: []core.Service{
@@ -163,7 +167,7 @@ func TestComputeDiffDetectsConfigChange(t *testing.T) {
 			Names: []string{"/mico-web"},
 			Image: "nginx:alpine",
 		},
-	}, inspectContainerConfig)
+	}, inspectFn)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"mico-web"}, changed)
@@ -187,22 +191,8 @@ func TestComputeDiffSupportsOldManifestWithoutConfigHash(t *testing.T) {
 				{PublicPort: 8080, Type: "tcp"},
 			},
 		},
-	}, inspectContainerConfig)
+	}, nil)
 
 	require.NoError(t, err)
 	require.Empty(t, changed)
-}
-
-func stubInspectContainerConfig(t *testing.T, cfg *container.Config) func() {
-	t.Helper()
-
-	oldInspect := inspectContainerConfig
-	inspectContainerConfig = func(containerName string) (*container.Config, error) {
-		require.Equal(t, "mico-web", containerName)
-		return cfg, nil
-	}
-
-	return func() {
-		inspectContainerConfig = oldInspect
-	}
 }

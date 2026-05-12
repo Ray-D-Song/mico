@@ -20,10 +20,11 @@ import (
 type InspectConfig = func(containerName string) (*container.Config, error)
 
 type PackOptions struct {
-	OutputPath  string
-	Containers  string
-	Incremental bool
-	Concurrent  int
+	OutputPath     string
+	Containers     string
+	Incremental    bool
+	Concurrent     int
+	InspectConfig  InspectConfig
 }
 
 func Pack(ctx context.Context, opts PackOptions) {
@@ -87,7 +88,7 @@ func Pack(ctx context.Context, opts PackOptions) {
 			workDir = utils.CreateWorkDir("mico-incr")
 			utils.PrintI("Work directory: %s\n", workDir)
 
-			changed, err := computeDiff(lastManifest.Manifest, containerList, inspectContainerConfig)
+			changed, err := computeDiff(lastManifest.Manifest, containerList, opts.InspectConfig)
 			if err != nil {
 				utils.PrintErrMsg(utils.ErrPackCreate, err)
 				return
@@ -386,11 +387,4 @@ func sameStringSet(a, b []string) bool {
 	return len(counts) == 0
 }
 
-var inspectContainerConfig = func(containerName string) (*container.Config, error) {
-	client := docker.GetClient()
-	resp, err := client.ContainerInspect(nil, containerName)
-	if err != nil {
-		return nil, err
-	}
-	return resp.Config, nil
-}
+

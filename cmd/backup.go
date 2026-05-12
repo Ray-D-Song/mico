@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/ray-d-song/mico/pkg/s3"
@@ -41,10 +40,10 @@ func init() {
 }
 
 func runBackup(cmd *cobra.Command, args []string) {
-	utils.SetSlient()
+	utils.SetSilent()
 
 	if err := s3.InitializeClient(); err != nil {
-		utils.PrintE(err.Error())
+		utils.PrintE("%s\n", err.Error())
 		return
 	}
 
@@ -56,7 +55,7 @@ func runBackup(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 	for {
 		if err := doBackup(ctx, bucketName); err != nil {
-			utils.PrintE(err.Error())
+		utils.PrintE("%s\n", err.Error())
 		}
 
 		if interval <= 0 {
@@ -77,7 +76,6 @@ func resolveBucket() string {
 }
 
 func doBackup(ctx context.Context, bucketName string) error {
-	fmt.Print(utils.Logo)
 	return nil
 }
 

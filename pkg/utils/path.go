@@ -22,6 +22,7 @@ const (
 	FileHostJSON     = "host.json"
 	FileMountsJSON   = "mounts.json"
 	FileNetworkJSON  = "network.json"
+	FileLog          = "pack.log"
 )
 
 func GetConfigDir() string {
@@ -46,6 +47,14 @@ func GetS3ConfigPath() string {
 		return ""
 	}
 	return filepath.Join(dir, FileS3Ini)
+}
+
+func GetLogPath() string {
+	dir := GetConfigDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, FileLog)
 }
 
 func ManifestPath(workDir string) string {

@@ -460,7 +460,7 @@ func restoreNetworks(workDir string) error {
 
 	networkSet := make(map[string]bool)
 	for _, networkName := range manifest.Networks {
-		if networkName == "" || core.IsBuiltinNetwork(networkName) || isLikelyNetworkID(networkName) {
+		if networkName == "" || core.IsBuiltinNetwork(networkName) || core.IsLikelyNetworkID(networkName) {
 			continue
 		}
 		networkSet[networkName] = true
@@ -670,17 +670,4 @@ func createContainers(workDir string) error {
 	}
 
 	return nil
-}
-
-func isLikelyNetworkID(name string) bool {
-	if len(name) < 32 {
-		return false
-	}
-	for _, c := range name {
-		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
-			continue
-		}
-		return false
-	}
-	return true
 }

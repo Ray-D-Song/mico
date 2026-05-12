@@ -31,3 +31,16 @@ func CollectNetworks(containers []container.Summary) []string {
 	}
 	return networks
 }
+
+func IsLikelyNetworkID(name string) bool {
+	if len(name) < 32 {
+		return false
+	}
+	for _, c := range name {
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
+}

@@ -23,6 +23,9 @@ var (
 	verifyChecksum bool
 	forceRestore   bool
 	loadImage      = docker.LoadImage
+	runContainer   = func(args ...string) ([]byte, error) {
+		return exec.Command(runtime.Binary(), args...).CombinedOutput()
+	}
 )
 
 var unpackCmd = &cobra.Command{
@@ -555,6 +558,7 @@ func createContainers(workDir string) error {
 	sortedServices := topologicalSortCreate(manifest.Services)
 	utils.PrintS("core.Services start order: %v\n", getStartOrderNames(sortedServices))
 
+	var createErrs []string
 	for _, svc := range sortedServices {
 		cName := svc.ContainerName
 		if cName == "" {
@@ -652,13 +656,18 @@ func createContainers(workDir string) error {
 			exec.Command(runtime.Binary(), "rm", "-f", cName).Run()
 		}
 
-		cmd := exec.Command(runtime.Binary(), runArgs...)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			utils.PrintW("Container %s: %s\n", cName, string(output))
+		if output, err := runContainer(runArgs...); err != nil {
+			errMsg := fmt.Sprintf("container %s: %s", cName, strings.TrimSpace(string(output)))
+			utils.PrintW("%s\n", errMsg)
+			createErrs = append(createErrs, errMsg)
 			continue
 		}
 
 		utils.PrintS("Container created: %s\n", cName)
+	}
+
+	if len(createErrs) > 0 {
+		return fmt.Errorf("failed to create %d container(s): %s", len(createErrs), strings.Join(createErrs, "; "))
 	}
 
 	return nil

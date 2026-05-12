@@ -22,5 +22,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+      - name: Grant Docker volume access
+        run: sudo chmod -R a+rX /var/lib/docker/volumes
       - name: E2E tests
         run: make e2e

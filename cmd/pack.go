@@ -18,9 +18,17 @@ import (
 )
 
 var (
-	outputPath  string
-	containers  string
-	incremental bool
+	outputPath             string
+	containers             string
+	incremental            bool
+	inspectContainerConfig = func(containerName string) (*container.Config, error) {
+		client := docker.GetClient()
+		resp, err := client.ContainerInspect(nil, containerName)
+		if err != nil {
+			return nil, err
+		}
+		return resp.Config, nil
+	}
 )
 
 var packCmd = &cobra.Command{
@@ -144,6 +152,7 @@ Examples:
 
 		var wg sync.WaitGroup
 		var saveErr, inspectErr, volumeErr error
+		var configs map[string]*container.Config
 
 		imageItems := make([]struct {
 			ContainerName string
@@ -166,7 +175,7 @@ Examples:
 		}()
 		go func() {
 			defer wg.Done()
-			_, inspectErr = inspector.InspectBatch(ctx, containerNames, concurrent)
+			configs, inspectErr = inspector.InspectBatch(ctx, containerNames, concurrent)
 		}()
 		go func() {
 			defer wg.Done()
@@ -211,13 +220,13 @@ Examples:
 				CreatedAt:   time.Now(),
 				Project:     depGraph.Project,
 				Networks:    collectNetworks(needPackContainers),
-				Services:    buildServices(depGraph, needPackContainers),
+				Services:    buildServices(depGraph, needPackContainers, configs),
 				Incremental: true,
 				BasePack:    lastManifest.PackageHash,
 			}
 		} else {
 			networks := collectNetworks(containerList)
-			services := buildServices(depGraph, containerList)
+			services := buildServices(depGraph, containerList, configs)
 			manifest = core.PackageManifest{
 				Version:   "1.0",
 				CreatedAt: time.Now(),
@@ -296,7 +305,7 @@ func collectNetworks(containers []container.Summary) []string {
 	return networks
 }
 
-func buildServices(depGraph deps.DepAnalysis, containers []container.Summary) []core.Service {
+func buildServices(depGraph deps.DepAnalysis, containers []container.Summary, configs map[string]*container.Config) []core.Service {
 	services := make([]core.Service, 0, len(containers))
 	containerMap := make(map[string]container.Summary)
 	for _, c := range containers {
@@ -321,6 +330,7 @@ func buildServices(depGraph deps.DepAnalysis, containers []container.Summary) []
 			Name:          info.ServiceName,
 			ContainerName: info.ContainerName,
 			Image:         c.Image,
+			ConfigHash:    hashContainerConfig(configs[info.ContainerName]),
 			DependsOn:     info.DependsOn,
 			StartOrder:    0,
 			Ports:         ports,
@@ -349,7 +359,12 @@ func cleanContainerName(names []string) string {
 func computeDiff(lastManifest core.PackageManifest, currentContainers []container.Summary) ([]string, error) {
 	lastServices := make(map[string]core.Service)
 	for _, svc := range lastManifest.Services {
-		lastServices[svc.Name] = svc
+		if svc.ContainerName != "" {
+			lastServices[svc.ContainerName] = svc
+		}
+		if svc.Name != "" {
+			lastServices[svc.Name] = svc
+		}
 	}
 
 	changed := make([]string, 0)
@@ -361,35 +376,21 @@ func computeDiff(lastManifest core.PackageManifest, currentContainers []containe
 			continue
 		}
 
-		client := docker.GetClient()
-		resp, err := client.ContainerInspect(nil, name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to inspect container %s: %w", name, err)
-		}
-
-		configHash := utils.SHA256String(fmt.Sprintf("%v", resp.Config))
-
 		hasChange := false
 		if lastSvc.Image != c.Image {
 			hasChange = true
 		}
-		if !hasChange && configHash != utils.SHA256String(fmt.Sprintf("%v", lastSvc)) {
-			hasChange = true
-		}
-		if !hasChange {
-			for _, port := range c.Ports {
-				found := false
-				for _, p := range lastSvc.Ports {
-					if p == fmt.Sprintf("%d/%s", port.PublicPort, port.Type) {
-						found = true
-						break
-					}
-				}
-				if !found {
-					hasChange = true
-					break
-				}
+		if !hasChange && lastSvc.ConfigHash != "" {
+			cfg, err := inspectContainerConfig(name)
+			if err != nil {
+				return nil, fmt.Errorf("failed to inspect container %s: %w", name, err)
 			}
+			if hashContainerConfig(cfg) != lastSvc.ConfigHash {
+				hasChange = true
+			}
+		}
+		if !hasChange && !sameStringSet(containerPublicPorts(c), lastSvc.Ports) {
+			hasChange = true
 		}
 
 		if hasChange {
@@ -398,4 +399,45 @@ func computeDiff(lastManifest core.PackageManifest, currentContainers []containe
 	}
 
 	return changed, nil
+}
+
+func hashContainerConfig(cfg *container.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return utils.SHA256String(fmt.Sprintf("%v", cfg))
+	}
+	return utils.SHA256String(string(data))
+}
+
+func containerPublicPorts(c container.Summary) []string {
+	ports := make([]string, 0, len(c.Ports))
+	for _, port := range c.Ports {
+		if port.PublicPort > 0 {
+			ports = append(ports, fmt.Sprintf("%d/%s", port.PublicPort, port.Type))
+		}
+	}
+	return ports
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[string]int, len(a))
+	for _, v := range a {
+		counts[v]++
+	}
+	for _, v := range b {
+		if counts[v] == 0 {
+			return false
+		}
+		counts[v]--
+		if counts[v] == 0 {
+			delete(counts, v)
+		}
+	}
+	return len(counts) == 0
 }

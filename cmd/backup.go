@@ -99,15 +99,24 @@ func doBackup(ctx context.Context, bucketName string, containers string) error {
 	now := time.Now()
 	baseName := filepath.Base(outputPath)
 	packKey := "backup-" + now.Format("2006/01/02/150405") + "/" + baseName
-	// Upload the file to S3
 	if err := s3.UploadFile(ctx, bucketName, packKey, outputPath); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 	utils.PrintS("Uploaded: %s\n", packKey)
 
-	// Clean up temporary file
+	checksumPath := outputPath + ".sha256"
+	if utils.FileExists(checksumPath) {
+		checksumKey := packKey + ".sha256"
+		if err := s3.UploadFile(ctx, bucketName, checksumKey, checksumPath); err != nil {
+			utils.PrintW("failed to upload checksum: %v\n", err)
+		}
+	}
+
 	if err := os.Remove(outputPath); err != nil {
 		utils.PrintW("failed to remove temp file: %v\n", err)
+	}
+	if err := os.Remove(checksumPath); err != nil && !os.IsNotExist(err) {
+		utils.PrintW("failed to remove temp checksum: %v\n", err)
 	}
 
 	// Clean up old backups if retention is set

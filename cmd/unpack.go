@@ -696,6 +696,36 @@ func createContainers(workDir string) error {
 			}
 		}
 
+		// Determine the correct network to start on.
+		// When the original container was on a user-defined network alongside the
+		// default bridge (NetworkMode == "bridge"), we must start the new container
+		// directly on that user-defined network rather than connecting after start.
+		effectiveNetworkMode := host.NetworkMode
+		additionalNetworks := make([]string, 0)
+		if networkData, err := os.ReadFile(utils.ServiceNetworkJSON(workDir, cName)); err == nil {
+			var netSettings struct {
+				Networks map[string]interface{} `json:"Networks"`
+			}
+			if err := json.Unmarshal(networkData, &netSettings); err == nil {
+				utils.PrintI("[DEBUG] %s network.json networks: %v\n", cName, mapKeys(netSettings.Networks))
+				utils.PrintI("[DEBUG] %s host.NetworkMode: %q\n", cName, host.NetworkMode)
+				for networkName := range netSettings.Networks {
+					if networkName == "" || core.IsBuiltinNetwork(networkName) || core.IsLikelyNetworkID(networkName) {
+						utils.PrintI("[DEBUG] %s skipping builtin/ID network: %s\n", cName, networkName)
+						continue
+					}
+					if effectiveNetworkMode == "" || effectiveNetworkMode == "default" || core.IsBuiltinNetwork(effectiveNetworkMode) {
+						effectiveNetworkMode = networkName
+						utils.PrintI("[DEBUG] %s using first custom network as primary: %s\n", cName, networkName)
+					} else if networkName != effectiveNetworkMode {
+						additionalNetworks = append(additionalNetworks, networkName)
+					}
+				}
+			}
+		} else {
+			utils.PrintI("[DEBUG] %s no network.json found: %v\n", cName, err)
+		}
+
 		runArgs := []string{"run", "-d", "--name", cName}
 		for _, bind := range binds {
 			runArgs = append(runArgs, "-v", bind)
@@ -706,8 +736,11 @@ func createContainers(workDir string) error {
 		for _, env := range cfg.Env {
 			runArgs = append(runArgs, "-e", env)
 		}
-		if host.NetworkMode != "" && host.NetworkMode != "default" {
-			runArgs = append(runArgs, "--net", host.NetworkMode)
+		if effectiveNetworkMode != "" && effectiveNetworkMode != "default" && !core.IsBuiltinNetwork(effectiveNetworkMode) {
+			runArgs = append(runArgs, "--net", effectiveNetworkMode)
+			utils.PrintI("[DEBUG] %s using --net %s\n", cName, effectiveNetworkMode)
+		} else {
+			utils.PrintI("[DEBUG] %s no --net flag (NetworkMode=%q effective=%q)\n", cName, host.NetworkMode, effectiveNetworkMode)
 		}
 		if host.RestartPolicy.Name != "" && host.RestartPolicy.Name != "no" {
 			runArgs = append(runArgs, "--restart", host.RestartPolicy.Name)
@@ -716,6 +749,8 @@ func createContainers(workDir string) error {
 		if len(cfg.Cmd) > 0 {
 			runArgs = append(runArgs, cfg.Cmd...)
 		}
+
+		utils.PrintI("[DEBUG] %s run args: %v\n", cName, runArgs)
 
 		if forceRestore {
 			exec.Command(runtime.Binary(), "rm", "-f", cName).Run()
@@ -728,21 +763,12 @@ func createContainers(workDir string) error {
 			continue
 		}
 
-		if networkData, err := os.ReadFile(utils.ServiceNetworkJSON(workDir, cName)); err == nil {
-			var netSettings struct {
-				Networks map[string]interface{} `json:"Networks"`
-			}
-			if err := json.Unmarshal(networkData, &netSettings); err == nil {
-				for networkName := range netSettings.Networks {
-					if networkName == "" || core.IsBuiltinNetwork(networkName) || core.IsLikelyNetworkID(networkName) || networkName == host.NetworkMode {
-						continue
-					}
-					if output, err := runContainer("network", "connect", networkName, cName); err != nil {
-						utils.PrintW("Failed to connect %s to network %s: %s\n", cName, networkName, strings.TrimSpace(string(output)))
-					} else {
-						utils.PrintS("Connected %s to network %s\n", cName, networkName)
-					}
-				}
+		for _, networkName := range additionalNetworks {
+			utils.PrintI("[DEBUG] %s connecting to additional network: %s\n", cName, networkName)
+			if output, err := runContainer("network", "connect", networkName, cName); err != nil {
+				utils.PrintW("Failed to connect %s to network %s: %v output=%s\n", cName, networkName, err, strings.TrimSpace(string(output)))
+			} else {
+				utils.PrintS("Connected %s to network %s\n", cName, networkName)
 			}
 		}
 
@@ -778,6 +804,14 @@ func listBackups(ctx context.Context, bucketName string) error {
 		}
 	}
 	return nil
+}
+
+func mapKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func formatSize(n int64) string {

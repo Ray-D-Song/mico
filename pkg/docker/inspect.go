@@ -110,6 +110,13 @@ func (i *Inspector) SaveNetworkSettings(ctx context.Context, containerName strin
 
 	utils.EnsureDir(utils.ServiceConfigDir(i.workDir, containerName))
 
+	// Debug: log what networks are being saved for this container
+	networkNames := make([]string, 0, len(resp.NetworkSettings.Networks))
+	for n := range resp.NetworkSettings.Networks {
+		networkNames = append(networkNames, n)
+	}
+	utils.PrintI("[DEBUG PACK] %s network.json saving networks: %v\n", containerName, networkNames)
+
 	networkPath := utils.ServiceNetworkJSON(i.workDir, containerName)
 	data, err := json.MarshalIndent(resp.NetworkSettings, "", "  ")
 	if err != nil {

@@ -3,6 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/ray-d-song/mico/pkg/packer"
@@ -79,6 +82,7 @@ func resolveBucket() string {
 
 func doBackup(ctx context.Context, bucketName string, containers string) error {
 	utils.PrintI("Packing containers...\n")
+	// Generate temporary zstd file
 	outputPath := utils.GetS3TempZstdPath()
 	if err := packer.Pack(ctx, packer.PackOptions{
 		OutputPath:    outputPath,
@@ -91,8 +95,22 @@ func doBackup(ctx context.Context, bucketName string, containers string) error {
 	}
 
 	utils.PrintI("Uploading to S3...\n")
-	// TODO: upload outputPath to S3, then os.Remove(outputPath)
 
+	now := time.Now()
+	baseName := filepath.Base(outputPath)
+	packKey := "backup-" + now.Format("2006/01/02/150405") + "/" + baseName
+	// Upload the file to S3
+	if err := s3.UploadFile(ctx, bucketName, packKey, outputPath); err != nil {
+		return fmt.Errorf("upload failed: %w", err)
+	}
+	utils.PrintS("Uploaded: %s\n", packKey)
+
+	// Clean up temporary file
+	if err := os.Remove(outputPath); err != nil {
+		utils.PrintW("failed to remove temp file: %v\n", err)
+	}
+
+	// Clean up old backups if retention is set
 	if retention > 0 {
 		utils.PrintI("Cleaning up old backups...\n")
 		if err := cleanupOldBackups(ctx, bucketName, retention); err != nil {
@@ -104,8 +122,23 @@ func doBackup(ctx context.Context, bucketName string, containers string) error {
 }
 
 func cleanupOldBackups(ctx context.Context, bucketName string, keep int) error {
-	// 1. list objects in bucket with prefix "backup-"
-	// 2. sort by creation date, delete all but the most recent 'keep' objects
+	objects, err := s3.ListObjects(ctx, bucketName, "backup-", 1000)
+	if err != nil {
+		return fmt.Errorf("failed to list objects: %w", err)
+	}
+	if len(objects) <= keep {
+		return nil
+	}
+
+	sort.Slice(objects, func(i, j int) bool {
+		return objects[i].LastModified.After(objects[j].LastModified)
+	})
+
+	for _, obj := range objects[keep:] {
+		if err := s3.DeleteObject(ctx, bucketName, obj.Key); err != nil {
+			return fmt.Errorf("failed to delete %s: %w", obj.Key, err)
+		}
+	}
 
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -30,27 +31,47 @@ func UploadFile(ctx context.Context, bucket, key, filePath string) error {
 	return nil
 }
 
+type ObjectInfo struct {
+	Key          string
+	LastModified time.Time
+}
+
 // ListObjects lists objects under the given prefix in the specified bucket.
 // Returns up to maxKeys objects.
-func ListObjects(ctx context.Context, bucket, prefix string, maxKeys int32) ([]string, error) {
+func ListObjects(ctx context.Context, bucket, prefix string, maxKeys int32) ([]ObjectInfo, error) {
 	client := GetClient()
 
-	resp, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket:  &bucket,
-		Prefix:  &prefix,
-		MaxKeys: &maxKeys,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list objects in %s: %w", bucket, err)
+	var objects []ObjectInfo
+	var continuationToken *string
+
+	for {
+		resp, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            &bucket,
+			Prefix:            &prefix,
+			MaxKeys:           &maxKeys,
+			ContinuationToken: continuationToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list objects in %s: %w", bucket, err)
+		}
+
+		for _, obj := range resp.Contents {
+			if obj.Key != nil {
+				lm := time.Time{}
+				if obj.LastModified != nil {
+					lm = *obj.LastModified
+				}
+				objects = append(objects, ObjectInfo{Key: *obj.Key, LastModified: lm})
+			}
+		}
+
+		if resp.IsTruncated == nil || !*resp.IsTruncated {
+			break
+		}
+		continuationToken = resp.NextContinuationToken
 	}
 
-	keys := make([]string, 0, len(resp.Contents))
-	for _, obj := range resp.Contents {
-		if obj.Key != nil {
-			keys = append(keys, *obj.Key)
-		}
-	}
-	return keys, nil
+	return objects, nil
 }
 
 // DeleteObject deletes a single object from the given bucket.

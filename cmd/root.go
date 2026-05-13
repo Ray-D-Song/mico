@@ -31,7 +31,9 @@ func elevateIfNeeded(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	utils.PrintI("Docker volume data requires root access. Elevating with sudo...\n\n")
+	if interval <= 0 {
+		utils.PrintI("Docker volume data requires root access. Elevating with sudo...\n\n")
+	}
 
 	exe, _ := os.Executable()
 	// Preserve HOME so Docker SDK can find the user's config

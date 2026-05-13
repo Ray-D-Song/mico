@@ -136,6 +136,7 @@ func cleanupOldBackups(ctx context.Context, bucketName string, keep int) error {
 		return fmt.Errorf("failed to list objects: %w", err)
 	}
 	if len(objects) <= keep {
+		utils.PrintI("No old backups to clean up\n")
 		return nil
 	}
 
@@ -149,5 +150,6 @@ func cleanupOldBackups(ctx context.Context, bucketName string, keep int) error {
 		}
 	}
 
+	utils.PrintI("Cleanup completed\n")
 	return nil
 }

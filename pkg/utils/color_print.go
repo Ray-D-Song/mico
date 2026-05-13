@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 var (
@@ -46,7 +47,8 @@ func initLog() {
 func logWrite(f string, a ...any) {
 	initLog()
 	if logFile != nil {
-		fmt.Fprintf(logFile, f, a...)
+		msg := fmt.Sprintf(f, a...)
+		fmt.Fprintf(logFile, "%s %s", time.Now().Format(time.RFC3339), msg)
 	}
 }
 

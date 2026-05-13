@@ -2,9 +2,12 @@
   <img src="assets/logo.svg" alt="mico" width="260" height="70">
 </div>
 
-![Go](https://img.shields.io/badge/Go-1.24.5-00ADD8?style=flat&logo=go)
-![Version](https://img.shields.io/github/v/release/ray-d-song/mico?label=version)
-![License](https://img.shields.io/badge/license-MIT-blue?style=flat)
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.24.5-00ADD8?style=flat&logo=go" alt="Go">
+  <img src="https://img.shields.io/github/v/release/ray-d-song/mico?label=version" alt="Version">
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat" alt="License">
+</p>
 
 > **Mi**grate **Co**ntainers — painless Docker container migration between servers.
 

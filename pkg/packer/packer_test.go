@@ -1,4 +1,4 @@
-package cmd
+package packer
 
 import (
 	"testing"
@@ -75,7 +75,7 @@ func TestTopologicalSortIgnoresDependenciesOutsideArchive(t *testing.T) {
 		{Name: "web", ContainerName: "mico-web", DependsOn: []string{"db"}},
 	}
 
-	sorted := topologicalSort(services)
+	sorted := core.SortServicesByDeps(services)
 
 	require.Len(t, sorted, 1)
 	require.Equal(t, "web", sorted[0].Name)
@@ -89,7 +89,7 @@ func TestTopologicalSortOrdersInternalDependencies(t *testing.T) {
 		{Name: "worker", ContainerName: "mico-worker", DependsOn: []string{"db"}},
 	}
 
-	sorted := topologicalSort(services)
+	sorted := core.SortServicesByDeps(services)
 
 	require.Len(t, sorted, 3)
 	require.Equal(t, "db", sorted[0].Name)
@@ -105,7 +105,7 @@ func TestTopologicalSortKeepsServicesInCycles(t *testing.T) {
 		{Name: "b", DependsOn: []string{"a"}},
 	}
 
-	sorted := topologicalSort(services)
+	sorted := core.SortServicesByDeps(services)
 
 	require.Len(t, sorted, 2)
 	require.Equal(t, []string{"a", "b"}, []string{sorted[0].Name, sorted[1].Name})
@@ -115,8 +115,10 @@ func TestTopologicalSortKeepsServicesInCycles(t *testing.T) {
 
 func TestComputeDiffKeepsUnchangedComposeContainer(t *testing.T) {
 	cfg := &container.Config{Image: "nginx:alpine", Env: []string{"A=B"}}
-	restoreInspect := stubInspectContainerConfig(t, cfg)
-	defer restoreInspect()
+	inspectFn := func(containerName string) (*container.Config, error) {
+		require.Equal(t, "mico-web", containerName)
+		return cfg, nil
+	}
 
 	changed, err := computeDiff(core.PackageManifest{
 		Services: []core.Service{
@@ -137,7 +139,7 @@ func TestComputeDiffKeepsUnchangedComposeContainer(t *testing.T) {
 				{PrivatePort: 80, PublicPort: 0, Type: "tcp"},
 			},
 		},
-	})
+	}, inspectFn)
 
 	require.NoError(t, err)
 	require.Empty(t, changed)
@@ -146,8 +148,10 @@ func TestComputeDiffKeepsUnchangedComposeContainer(t *testing.T) {
 func TestComputeDiffDetectsConfigChange(t *testing.T) {
 	oldCfg := &container.Config{Image: "nginx:alpine", Env: []string{"A=B"}}
 	newCfg := &container.Config{Image: "nginx:alpine", Env: []string{"A=C"}}
-	restoreInspect := stubInspectContainerConfig(t, newCfg)
-	defer restoreInspect()
+	inspectFn := func(containerName string) (*container.Config, error) {
+		require.Equal(t, "mico-web", containerName)
+		return newCfg, nil
+	}
 
 	changed, err := computeDiff(core.PackageManifest{
 		Services: []core.Service{
@@ -163,7 +167,7 @@ func TestComputeDiffDetectsConfigChange(t *testing.T) {
 			Names: []string{"/mico-web"},
 			Image: "nginx:alpine",
 		},
-	})
+	}, inspectFn)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"mico-web"}, changed)
@@ -187,22 +191,8 @@ func TestComputeDiffSupportsOldManifestWithoutConfigHash(t *testing.T) {
 				{PublicPort: 8080, Type: "tcp"},
 			},
 		},
-	})
+	}, nil)
 
 	require.NoError(t, err)
 	require.Empty(t, changed)
-}
-
-func stubInspectContainerConfig(t *testing.T, cfg *container.Config) func() {
-	t.Helper()
-
-	oldInspect := inspectContainerConfig
-	inspectContainerConfig = func(containerName string) (*container.Config, error) {
-		require.Equal(t, "mico-web", containerName)
-		return cfg, nil
-	}
-
-	return func() {
-		inspectContainerConfig = oldInspect
-	}
 }

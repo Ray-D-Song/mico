@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,9 +29,9 @@ func TestLoadImagesReturnsLoaderError(t *testing.T) {
 
 	workDir := t.TempDir()
 	for _, name := range []string{"good-1", "bad", "good-2"} {
-		imageDir := filepath.Join(workDir, name, "image")
+		imageDir := utils.ServiceImageDir(workDir, name)
 		require.NoError(t, os.MkdirAll(imageDir, 0755))
-		require.NoError(t, os.WriteFile(filepath.Join(imageDir, "image.tar"), []byte("fake image"), 0644))
+		require.NoError(t, os.WriteFile(utils.ServiceImageTar(workDir, name), []byte("fake image"), 0644))
 	}
 
 	require.ErrorIs(t, loadImages(workDir), expectedErr)

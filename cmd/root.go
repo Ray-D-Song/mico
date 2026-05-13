@@ -6,11 +6,21 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/ray-d-song/mico/pkg/docker"
 	rt "github.com/ray-d-song/mico/pkg/runtime"
 	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/spf13/cobra"
 )
+
+var inspectContainerConfig = func(containerName string) (*container.Config, error) {
+	client := docker.GetClient()
+	resp, err := client.ContainerInspect(nil, containerName)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Config, nil
+}
 
 func elevateIfNeeded(cmd *cobra.Command, args []string) {
 	if runtime.GOOS != "linux" {

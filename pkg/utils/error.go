@@ -92,8 +92,8 @@ func PrintErrMsg(code ErrCode, a ...any) {
 		msg = "unknown error"
 	}
 	if len(a) > 0 {
-		PrintE(msg+": "+fmt.Sprint(a[0])+"\n")
+		PrintE("%s: %v\n", msg, a[0])
 	} else {
-		PrintE(msg + "\n")
+		PrintE("%s\n", msg)
 	}
 }

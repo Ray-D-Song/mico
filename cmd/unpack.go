@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"archive/tar"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,19 +10,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ray-d-song/mico/pkg/core"
 	"github.com/ray-d-song/mico/pkg/docker"
 	"github.com/ray-d-song/mico/pkg/runtime"
+	"github.com/ray-d-song/mico/pkg/s3"
 	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
 var (
-	verifyChecksum bool
+	skipVerify bool
 	forceRestore   bool
+	s3Mode         bool
+	s3Bucket       string
+	s3Key          string
+	s3List         bool
 	loadImage      = docker.LoadImage
 	runContainer   = func(args ...string) ([]byte, error) {
 		return exec.Command(runtime.Binary(), args...).CombinedOutput()
@@ -35,9 +43,12 @@ var unpackCmd = &cobra.Command{
 restores volumes, and recreates containers on the target server.
 
 Examples:
-  mico unpack migration.zst                     # Unpack with default settings
-  mico unpack migration.zst --verify            # Verify checksum before unpack
-  mico unpack migration.zst --force             # Force restore (overwrite existing)`,
+  mico unpack migration.zst                     # Unpack from local file (verify by default)
+  mico unpack migration.zst --no-verify          # Unpack from local file without checksum verification
+  mico unpack migration.zst --force              # Force restore (overwrite existing)
+  mico unpack --s3 --list                       # List all backups in S3
+  mico unpack --s3                              # Restore latest backup from S3
+  mico unpack --s3 --key backup-2026/...        # Restore specific backup from S3`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if concurrent <= 0 {
 			concurrent = 1
@@ -45,12 +56,75 @@ Examples:
 
 		fmt.Print(utils.Logo)
 
-		if len(args) == 0 {
-			utils.PrintErrMsg(utils.ErrInvalidInput, "migration package required")
-			return
-		}
+		ctx := cmd.Context()
+		var packagePath string
 
-		packagePath := args[0]
+		if s3Mode {
+			if err := s3.InitializeClient(); err != nil {
+				utils.PrintE("%s\n", err.Error())
+				return
+			}
+			bucketName := s3Bucket
+			if bucketName == "" {
+				if cfg := s3.GetConfig(); cfg.Bucket != "" {
+					bucketName = cfg.Bucket
+				}
+			}
+			if bucketName == "" {
+				utils.PrintE("no s3 bucket specified\n")
+				return
+			}
+
+			if s3List {
+				if err := listBackups(ctx, bucketName); err != nil {
+					utils.PrintE("%s\n", err.Error())
+				}
+				return
+			}
+
+			key := s3Key
+			if key == "" {
+				latest, err := findLatestBackup(ctx, bucketName)
+				if err != nil {
+					utils.PrintE("%s\n", err.Error())
+					return
+				}
+				if latest == "" {
+					utils.PrintW("No backups found in bucket %s\n", bucketName)
+					return
+				}
+				key = latest
+				utils.PrintI("Latest backup: %s\n", key)
+			}
+
+			tmpDir := os.TempDir()
+			timestamp := time.Now().Format("20060102150405")
+			tmpFile := filepath.Join(tmpDir, "mico-restore-"+timestamp+".zst")
+			tmpChecksum := tmpFile + ".sha256"
+
+			checksumKey := key + ".sha256"
+			utils.PrintI("Downloading checksum...\n")
+			if err := s3.DownloadFile(ctx, bucketName, checksumKey, tmpChecksum); err != nil {
+				utils.PrintE("checksum not found: %v\n", err.Error())
+				return
+			}
+			defer os.Remove(tmpChecksum)
+
+			utils.PrintI("Downloading backup...\n")
+			if err := s3.DownloadFile(ctx, bucketName, key, tmpFile); err != nil {
+				utils.PrintE("download failed: %v\n", err.Error())
+				return
+			}
+			defer os.Remove(tmpFile)
+
+			packagePath = tmpFile
+		} else {
+			if len(args) == 0 {
+				utils.PrintErrMsg(utils.ErrInvalidInput, "migration package or --s3 flag required")
+				return
+			}
+			packagePath = args[0]
+		}
 
 		if !utils.FileExists(packagePath) {
 			utils.PrintErrMsg(utils.ErrFileRead, "package not found: "+packagePath)
@@ -59,7 +133,7 @@ Examples:
 
 		utils.PrintI("Package: %s\n", packagePath)
 
-		if verifyChecksum {
+		if !skipVerify {
 			utils.PrintI("Verifying checksum...\n")
 			valid, err := utils.VerifyChecksum(packagePath)
 			if err != nil {
@@ -129,7 +203,11 @@ Examples:
 func init() {
 	rootCmd.AddCommand(unpackCmd)
 
-	unpackCmd.Flags().BoolVarP(&verifyChecksum, "verify", "v", false, "Verify checksum before unpack")
+	unpackCmd.Flags().BoolVar(&s3Mode, "s3", false, "Restore backup from S3 instead of local file")
+	unpackCmd.Flags().StringVarP(&s3Bucket, "bucket", "b", "", "S3 bucket name (default: from ~/.mico/s3.ini)")
+	unpackCmd.Flags().StringVarP(&s3Key, "key", "k", "", "Specific backup key to restore (default: latest)")
+	unpackCmd.Flags().BoolVarP(&s3List, "list", "l", false, "List available backups in S3")
+	unpackCmd.Flags().BoolVar(&skipVerify, "no-verify", false, "Skip checksum verification")
 	unpackCmd.Flags().BoolVarP(&forceRestore, "force", "f", false, "Force restore (overwrite existing)")
 	unpackCmd.Flags().IntVarP(&concurrent, "concurrent", "j", 1, "Number of concurrent operations")
 }
@@ -158,7 +236,7 @@ func extractTar(tarPath, destDir string) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0755); err != nil {
+			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg, tar.TypeRegA:
@@ -227,7 +305,7 @@ func loadImages(workDir string) error {
 			continue
 		}
 
-		imagePath := filepath.Join(workDir, entry.Name(), "image", "image.tar")
+		imagePath := utils.ServiceImageTar(workDir, entry.Name())
 		if !utils.FileExists(imagePath) {
 			continue
 		}
@@ -269,7 +347,7 @@ func restoreVolumes(workDir string) error {
 		}
 
 		containerName := entry.Name()
-		mountsPath := filepath.Join(workDir, containerName, "config", "mounts.json")
+		mountsPath := utils.ServiceMountsJSON(workDir, containerName)
 
 		if !utils.FileExists(mountsPath) {
 			continue
@@ -289,7 +367,7 @@ func restoreVolumes(workDir string) error {
 			switch mnt.Type {
 			case "bind":
 				volumeName := generateVolumeName(containerName, mnt.Destination)
-				bindTarPath := filepath.Join(workDir, containerName, "bind", escapePath(mnt.Destination)+".tar")
+				bindTarPath := utils.ServiceBindTar(workDir, containerName, mnt.Destination)
 
 				if err := restoreBindVolume(volumeName, bindTarPath, forceRestore); err != nil {
 					return fmt.Errorf("failed to restore volume for %s: %w", mnt.Destination, err)
@@ -300,7 +378,7 @@ func restoreVolumes(workDir string) error {
 			case "volume":
 				srcVolName := sourceVolumeName(mnt.Source)
 				volumeName := generateVolumeName(containerName, mnt.Destination)
-				volTarPath := filepath.Join(workDir, containerName, "volume", srcVolName+".tar")
+				volTarPath := utils.ServiceVolumeTar(workDir, containerName, srcVolName)
 
 				if err := restoreBindVolume(volumeName, volTarPath, forceRestore); err != nil {
 					return fmt.Errorf("failed to restore volume %s: %w", srcVolName, err)
@@ -343,18 +421,6 @@ func quickHash(s string) string {
 		h = h*31 + int(c) + i
 	}
 	return fmt.Sprintf("%x", h)
-}
-
-func escapePath(path string) string {
-	result := ""
-	for _, c := range path {
-		if c == '/' || c == ':' {
-			result += "_"
-		} else {
-			result += string(c)
-		}
-	}
-	return result
 }
 
 func restoreBindVolume(volumeName, tarPath string, force bool) error {
@@ -406,7 +472,7 @@ func dockerRemove(name string) {
 }
 
 func checkPortsConflict(workDir string) error {
-	manifestPath := filepath.Join(workDir, "manifest.json")
+	manifestPath := utils.ManifestPath(workDir)
 	if !utils.FileExists(manifestPath) {
 		return nil
 	}
@@ -443,7 +509,7 @@ func checkPortsConflict(workDir string) error {
 }
 
 func restoreNetworks(workDir string) error {
-	manifestPath := filepath.Join(workDir, "manifest.json")
+	manifestPath := utils.ManifestPath(workDir)
 	if !utils.FileExists(manifestPath) {
 		return nil
 	}
@@ -460,7 +526,7 @@ func restoreNetworks(workDir string) error {
 
 	networkSet := make(map[string]bool)
 	for _, networkName := range manifest.Networks {
-		if networkName == "" || isBuiltinNetwork(networkName) || isLikelyNetworkID(networkName) {
+		if networkName == "" || core.IsBuiltinNetwork(networkName) || core.IsLikelyNetworkID(networkName) {
 			continue
 		}
 		networkSet[networkName] = true
@@ -490,7 +556,7 @@ func restoreNetworks(workDir string) error {
 		if !entry.IsDir() {
 			continue
 		}
-		networkPath := filepath.Join(workDir, entry.Name(), "config", "network.json")
+		networkPath := utils.ServiceNetworkJSON(workDir, entry.Name())
 		if !utils.FileExists(networkPath) {
 			continue
 		}
@@ -508,7 +574,7 @@ func restoreNetworks(workDir string) error {
 		}
 
 		for networkName := range networkSettings.Networks {
-			if isBuiltinNetwork(networkName) {
+			if core.IsBuiltinNetwork(networkName) {
 				continue
 			}
 			if err := ensureOnce(networkName); err != nil {
@@ -536,7 +602,7 @@ func ensureNetwork(networkName string) error {
 }
 
 func createContainers(workDir string) error {
-	manifestPath := filepath.Join(workDir, "manifest.json")
+	manifestPath := utils.ManifestPath(workDir)
 	if !utils.FileExists(manifestPath) {
 		return fmt.Errorf("manifest not found")
 	}
@@ -555,8 +621,7 @@ func createContainers(workDir string) error {
 		return fmt.Errorf("failed to restore networks: %w", err)
 	}
 
-	sortedServices := topologicalSortCreate(manifest.Services)
-	utils.PrintS("core.Services start order: %v\n", getStartOrderNames(sortedServices))
+	sortedServices := core.SortServicesByDeps(manifest.Services)
 
 	var createErrs []string
 	for _, svc := range sortedServices {
@@ -565,13 +630,13 @@ func createContainers(workDir string) error {
 			cName = svc.Name
 		}
 
-		containerPath := filepath.Join(workDir, cName)
+		containerPath := utils.ServiceDir(workDir, cName)
 		if !utils.FileExists(containerPath) {
 			continue
 		}
 
-		configPath := filepath.Join(containerPath, "config", "config.json")
-		hostPath := filepath.Join(containerPath, "config", "host.json")
+		configPath := utils.ServiceConfigJSON(workDir, cName)
+		hostPath := utils.ServiceHostJSON(workDir, cName)
 		if !utils.FileExists(configPath) || !utils.FileExists(hostPath) {
 			continue
 		}
@@ -673,35 +738,58 @@ func createContainers(workDir string) error {
 	return nil
 }
 
-func topologicalSortCreate(services []core.Service) []core.Service {
-	return sortServicesByDeps(services)
+func listBackups(ctx context.Context, bucketName string) error {
+	objects, err := s3.ListObjects(ctx, bucketName, "backup-", 1000)
+	if err != nil {
+		return fmt.Errorf("failed to list backups: %w", err)
+	}
+	if len(objects) == 0 {
+		utils.PrintW("No backups found in bucket %s\n", bucketName)
+		return nil
+	}
+
+	sort.Slice(objects, func(i, j int) bool {
+		return objects[i].LastModified.After(objects[j].LastModified)
+	})
+
+	fmt.Printf("%-4s %-20s %-8s %s\n", "No.", "Date", "Size", "Key")
+	fmt.Println(strings.Repeat("-", 80))
+	for i, obj := range objects {
+		if !strings.HasSuffix(obj.Key, ".sha256") {
+			fmt.Printf("%-4d %-20s %8s %s\n", i+1, obj.LastModified.Format("2006-01-02 15:04:05"), formatSize(obj.Size), obj.Key)
+		}
+	}
+	return nil
 }
 
-func isBuiltinNetwork(name string) bool {
-	switch name {
-	case "bridge", "host", "none":
-		return true
+func formatSize(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1fG", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1fM", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1fK", float64(n)/(1<<10))
 	}
-	return false
+	return fmt.Sprintf("%dB", n)
 }
 
-func isLikelyNetworkID(name string) bool {
-	if len(name) < 32 {
-		return false
+func findLatestBackup(ctx context.Context, bucketName string) (string, error) {
+	objects, err := s3.ListObjects(ctx, bucketName, "backup-", 1000)
+	if err != nil {
+		return "", fmt.Errorf("failed to list backups: %w", err)
 	}
-	for _, c := range name {
-		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+
+	var latest string
+	var latestTime time.Time
+	for _, obj := range objects {
+		if strings.HasSuffix(obj.Key, ".sha256") {
 			continue
 		}
-		return false
+		if obj.LastModified.After(latestTime) {
+			latestTime = obj.LastModified
+			latest = obj.Key
+		}
 	}
-	return true
-}
-
-func getStartOrderNames(services []core.Service) []string {
-	names := make([]string, len(services))
-	for i, s := range services {
-		names[i] = s.Name
-	}
-	return names
+	return latest, nil
 }

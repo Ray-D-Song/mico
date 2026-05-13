@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/ray-d-song/mico/pkg/utils"
@@ -27,10 +26,9 @@ func (s *ImageSaver) SaveOne(ctx context.Context, containerName, imageRef string
 	}
 	defer reader.Close()
 
-	servicePath := filepath.Join(s.workDir, containerName)
-	utils.EnsureDir(servicePath + "/image")
+	utils.EnsureDir(utils.ServiceImageDir(s.workDir, containerName))
 
-	imagePath := filepath.Join(servicePath, "image", "image.tar")
+	imagePath := utils.ServiceImageTar(s.workDir, containerName)
 	f, err := os.Create(imagePath)
 	if err != nil {
 		return fmt.Errorf("failed to create image file: %w", err)

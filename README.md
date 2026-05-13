@@ -2,6 +2,13 @@
   <img src="assets/logo.svg" alt="mico" width="260" height="70">
 </div>
 
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.24.5-00ADD8?style=flat&logo=go" alt="Go">
+  <img src="https://img.shields.io/github/v/release/ray-d-song/mico?label=version" alt="Version">
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat" alt="License">
+</p>
+
 > **Mi**grate **Co**ntainers — painless Docker container migration between servers.
 
 [中文文档](README.zh.md)
@@ -16,6 +23,7 @@ Mico is a CLI tool that packs all running Docker containers (images, configs, vo
 - **Dependency-aware** — respects Docker Compose `depends_on` ordering via topological sort
 - **Concurrent operations** — configurable worker count for faster packing/unpacking
 - **Integrity verification** — SHA256 checksums auto-generated and verified on unpack
+- **S3 backup/restore** — upload backups to S3-compatible storage, restore with a single command
 - **Multi-runtime** — supports Docker, OrbStack and Podman
 
 > [!NOTE]
@@ -61,6 +69,12 @@ mico pack -o migration.zst
 
 # On the target server — restore everything
 mico unpack migration.zst
+
+# Backup to S3
+mico backup
+
+# Restore from S3
+mico unpack --s3
 ```
 
 ## Usage
@@ -106,19 +120,95 @@ mico unpack [flags] <archive>
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--verify` | `-v` | `false` | Verify SHA256 checksum before unpacking |
+| `--s3` | | `false` | Restore from S3 instead of local file |
+| `--bucket` | `-b` | *(from ~/.mico/s3.ini)* | S3 bucket name |
+| `--key` | `-k` | *(latest)* | Specific backup key to restore |
+| `--list` | `-l` | `false` | List available backups in S3 |
+| `--no-verify` | | `false` | Skip checksum verification |
 | `--force` | `-f` | `false` | Force restore (overwrite existing) |
 | `--concurrent` | `-j` | `1` | Number of concurrent operations |
 
 **Examples:**
 
 ```bash
-# Unpack with integrity verification
-mico unpack --verify migration.zst
+# Unpack local archive
+mico unpack migration.zst
+
+# Restore latest backup from S3
+mico unpack --s3
+
+# List all backups in S3
+mico unpack --s3 --list
+
+# Restore specific backup from S3
+mico unpack --s3 -k backup-2026/05/13/150405/s3_temp.zst
+
+# Restore from S3 without checksum verification
+mico unpack --s3 --no-verify
 
 # Force restore with 4 concurrent workers
 mico unpack -f -j 4 migration.zst
 ```
+
+### `mico backup`
+
+Pack containers and upload the archive to S3-compatible storage. Supports periodic backups.
+
+```bash
+mico backup [flags]
+```
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--bucket` | `-b` | *(from ~/.mico/s3.ini)* | S3 bucket name |
+| `--containers` | `-c` | *(all)* | Comma-separated container names |
+| `--interval` | `-i` | `0` | Backup interval in hours (0 = run once) |
+| `--retention` | `-r` | `0` | Number of backups to keep (0 = keep all) |
+| `--concurrent` | `-j` | `1` | Number of concurrent operations |
+
+**Examples:**
+
+```bash
+# One-time backup
+mico backup
+
+# Specific containers only
+mico backup -c web,db
+
+# Custom bucket, periodic every 6 hours, keep last 28
+mico backup -b my-bucket -i 6 -r 28
+```
+
+### S3 Configuration
+
+Place a config file at `~/.mico/s3.ini`. Compatible with any S3-compatible object storage (AWS S3, RustFS, MinIO, etc.).
+
+Example for RustFS:
+
+```ini
+[default]
+region = us-east-1
+endpoint = http://192.168.1.100:9000
+bucket = my-backups
+use_path_style = true
+aws_access_key_id = your-access-key
+aws_secret_access_key = your-secret-key
+```
+
+Supported options:
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `endpoint` | No | S3-compatible API endpoint (omit for AWS default) |
+| `bucket` | No | Default bucket name (can be overridden by `--bucket`) |
+| `use_path_style` | No | Set `true` for MinIO / RustFS / self-hosted S3 |
+| `region` | No | AWS region |
+| `aws_access_key_id` | No | Access key |
+| `aws_secret_access_key` | No | Secret key |
+
+All SDK-native options (`region`, `aws_access_key_id`, `aws_secret_access_key`, etc.) are loaded via the standard AWS credential chain.
+
+> If `~/.mico/s3.ini` is not present, the program falls back to the default AWS credential chain (environment variables, `~/.aws/credentials`, IAM instance profiles, etc.).
 
 ## How It Works
 
@@ -144,7 +234,10 @@ mico unpack -f -j 4 migration.zst
 ### Archive structure
 
 ```
-migration.zst
+migration.zst             # Compressed archive
+migration.zst.sha256      # SHA256 checksum sidecar (generated alongside archive)
+
+Archive contents:
 ├── manifest.json          # Package metadata & service definitions
 └── services/
     └── <service-name>/

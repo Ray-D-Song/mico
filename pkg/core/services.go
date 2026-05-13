@@ -1,13 +1,11 @@
-package cmd
+package core
 
-import "github.com/ray-d-song/mico/pkg/core"
-
-func sortServicesByDeps(services []core.Service) []core.Service {
+func SortServicesByDeps(services []Service) []Service {
 	if len(services) <= 1 {
 		return services
 	}
 
-	serviceByName := make(map[string]core.Service, len(services))
+	serviceByName := make(map[string]Service, len(services))
 	inDegree := make(map[string]int, len(services))
 	graph := make(map[string][]string, len(services))
 
@@ -33,7 +31,7 @@ func sortServicesByDeps(services []core.Service) []core.Service {
 		}
 	}
 
-	result := make([]core.Service, 0, len(services))
+	result := make([]Service, 0, len(services))
 	processed := make(map[string]bool, len(services))
 	order := 0
 	for len(queue) > 0 {

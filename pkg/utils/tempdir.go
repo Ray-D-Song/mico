@@ -67,9 +67,9 @@ func CreateWorkDir(prefix string) string {
 
 func CreateServiceDir(workDir, serviceName string) string {
 	servicePath := filepath.Join(workDir, serviceName)
-	EnsureDir(servicePath + "/image")
-	EnsureDir(servicePath + "/config")
-	EnsureDir(servicePath + "/volume")
+	EnsureDir(ServiceImageDir(workDir, serviceName))
+	EnsureDir(ServiceConfigDir(workDir, serviceName))
+	EnsureDir(ServiceVolumeDir(workDir, serviceName))
 	return servicePath
 }
 

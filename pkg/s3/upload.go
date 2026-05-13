@@ -34,6 +34,7 @@ func UploadFile(ctx context.Context, bucket, key, filePath string) error {
 type ObjectInfo struct {
 	Key          string
 	LastModified time.Time
+	Size         int64
 }
 
 // ListObjects lists objects under the given prefix in the specified bucket.
@@ -61,7 +62,11 @@ func ListObjects(ctx context.Context, bucket, prefix string, maxKeys int32) ([]O
 				if obj.LastModified != nil {
 					lm = *obj.LastModified
 				}
-				objects = append(objects, ObjectInfo{Key: *obj.Key, LastModified: lm})
+				sz := int64(0)
+				if obj.Size != nil {
+					sz = *obj.Size
+				}
+				objects = append(objects, ObjectInfo{Key: *obj.Key, LastModified: lm, Size: sz})
 			}
 		}
 

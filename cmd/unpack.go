@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"archive/tar"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,19 +10,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ray-d-song/mico/pkg/core"
 	"github.com/ray-d-song/mico/pkg/docker"
 	"github.com/ray-d-song/mico/pkg/runtime"
+	"github.com/ray-d-song/mico/pkg/s3"
 	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
 var (
-	verifyChecksum bool
+	skipVerify bool
 	forceRestore   bool
+	s3Mode         bool
+	s3Bucket       string
+	s3Key          string
+	s3List         bool
 	loadImage      = docker.LoadImage
 	runContainer   = func(args ...string) ([]byte, error) {
 		return exec.Command(runtime.Binary(), args...).CombinedOutput()
@@ -35,9 +43,12 @@ var unpackCmd = &cobra.Command{
 restores volumes, and recreates containers on the target server.
 
 Examples:
-  mico unpack migration.zst                     # Unpack with default settings
-  mico unpack migration.zst --verify            # Verify checksum before unpack
-  mico unpack migration.zst --force             # Force restore (overwrite existing)`,
+  mico unpack migration.zst                     # Unpack from local file (verify by default)
+  mico unpack migration.zst --no-verify          # Unpack from local file without checksum verification
+  mico unpack migration.zst --force              # Force restore (overwrite existing)
+  mico unpack --s3 --list                       # List all backups in S3
+  mico unpack --s3                              # Restore latest backup from S3
+  mico unpack --s3 --key backup-2026/...        # Restore specific backup from S3`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if concurrent <= 0 {
 			concurrent = 1
@@ -45,12 +56,75 @@ Examples:
 
 		fmt.Print(utils.Logo)
 
-		if len(args) == 0 {
-			utils.PrintErrMsg(utils.ErrInvalidInput, "migration package required")
-			return
-		}
+		ctx := cmd.Context()
+		var packagePath string
 
-		packagePath := args[0]
+		if s3Mode {
+			if err := s3.InitializeClient(); err != nil {
+				utils.PrintE("%s\n", err.Error())
+				return
+			}
+			bucketName := s3Bucket
+			if bucketName == "" {
+				if cfg := s3.GetConfig(); cfg.Bucket != "" {
+					bucketName = cfg.Bucket
+				}
+			}
+			if bucketName == "" {
+				utils.PrintE("no s3 bucket specified\n")
+				return
+			}
+
+			if s3List {
+				if err := listBackups(ctx, bucketName); err != nil {
+					utils.PrintE("%s\n", err.Error())
+				}
+				return
+			}
+
+			key := s3Key
+			if key == "" {
+				latest, err := findLatestBackup(ctx, bucketName)
+				if err != nil {
+					utils.PrintE("%s\n", err.Error())
+					return
+				}
+				if latest == "" {
+					utils.PrintW("No backups found in bucket %s\n", bucketName)
+					return
+				}
+				key = latest
+				utils.PrintI("Latest backup: %s\n", key)
+			}
+
+			tmpDir := os.TempDir()
+			timestamp := time.Now().Format("20060102150405")
+			tmpFile := filepath.Join(tmpDir, "mico-restore-"+timestamp+".zst")
+			tmpChecksum := tmpFile + ".sha256"
+
+			checksumKey := key + ".sha256"
+			utils.PrintI("Downloading checksum...\n")
+			if err := s3.DownloadFile(ctx, bucketName, checksumKey, tmpChecksum); err != nil {
+				utils.PrintE("checksum not found: %v\n", err.Error())
+				return
+			}
+			defer os.Remove(tmpChecksum)
+
+			utils.PrintI("Downloading backup...\n")
+			if err := s3.DownloadFile(ctx, bucketName, key, tmpFile); err != nil {
+				utils.PrintE("download failed: %v\n", err.Error())
+				return
+			}
+			defer os.Remove(tmpFile)
+
+			packagePath = tmpFile
+		} else {
+			if len(args) == 0 {
+				utils.PrintErrMsg(utils.ErrInvalidInput, "migration package or --s3 flag required")
+				return
+			}
+			packagePath = args[0]
+		}
 
 		if !utils.FileExists(packagePath) {
 			utils.PrintErrMsg(utils.ErrFileRead, "package not found: "+packagePath)
@@ -59,7 +133,7 @@ Examples:
 
 		utils.PrintI("Package: %s\n", packagePath)
 
-		if verifyChecksum {
+		if !skipVerify {
 			utils.PrintI("Verifying checksum...\n")
 			valid, err := utils.VerifyChecksum(packagePath)
 			if err != nil {
@@ -129,7 +203,11 @@ Examples:
 func init() {
 	rootCmd.AddCommand(unpackCmd)
 
-	unpackCmd.Flags().BoolVarP(&verifyChecksum, "verify", "v", false, "Verify checksum before unpack")
+	unpackCmd.Flags().BoolVar(&s3Mode, "s3", false, "Restore backup from S3 instead of local file")
+	unpackCmd.Flags().StringVarP(&s3Bucket, "bucket", "b", "", "S3 bucket name (default: from ~/.mico/s3.ini)")
+	unpackCmd.Flags().StringVarP(&s3Key, "key", "k", "", "Specific backup key to restore (default: latest)")
+	unpackCmd.Flags().BoolVarP(&s3List, "list", "l", false, "List available backups in S3")
+	unpackCmd.Flags().BoolVar(&skipVerify, "no-verify", false, "Skip checksum verification")
 	unpackCmd.Flags().BoolVarP(&forceRestore, "force", "f", false, "Force restore (overwrite existing)")
 	unpackCmd.Flags().IntVarP(&concurrent, "concurrent", "j", 1, "Number of concurrent operations")
 }
@@ -658,4 +736,60 @@ func createContainers(workDir string) error {
 	}
 
 	return nil
+}
+
+func listBackups(ctx context.Context, bucketName string) error {
+	objects, err := s3.ListObjects(ctx, bucketName, "backup-", 1000)
+	if err != nil {
+		return fmt.Errorf("failed to list backups: %w", err)
+	}
+	if len(objects) == 0 {
+		utils.PrintW("No backups found in bucket %s\n", bucketName)
+		return nil
+	}
+
+	sort.Slice(objects, func(i, j int) bool {
+		return objects[i].LastModified.After(objects[j].LastModified)
+	})
+
+	fmt.Printf("%-4s %-20s %-8s %s\n", "No.", "Date", "Size", "Key")
+	fmt.Println(strings.Repeat("-", 80))
+	for i, obj := range objects {
+		if !strings.HasSuffix(obj.Key, ".sha256") {
+			fmt.Printf("%-4d %-20s %8s %s\n", i+1, obj.LastModified.Format("2006-01-02 15:04:05"), formatSize(obj.Size), obj.Key)
+		}
+	}
+	return nil
+}
+
+func formatSize(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1fG", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1fM", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1fK", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%dB", n)
+}
+
+func findLatestBackup(ctx context.Context, bucketName string) (string, error) {
+	objects, err := s3.ListObjects(ctx, bucketName, "backup-", 1000)
+	if err != nil {
+		return "", fmt.Errorf("failed to list backups: %w", err)
+	}
+
+	var latest string
+	var latestTime time.Time
+	for _, obj := range objects {
+		if strings.HasSuffix(obj.Key, ".sha256") {
+			continue
+		}
+		if obj.LastModified.After(latestTime) {
+			latestTime = obj.LastModified
+			latest = obj.Key
+		}
+	}
+	return latest, nil
 }

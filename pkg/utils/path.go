@@ -16,7 +16,6 @@ const (
 const (
 	FileLastManifest = "last_manifest.json"
 	FileS3Ini        = "s3.ini"
-	FileS3TempZstd   = "s3_temp.zstd"
 	FileManifest     = "manifest.json"
 	FileImageTar     = "image.tar"
 	FileConfigJSON   = "config.json"
@@ -51,11 +50,7 @@ func GetS3ConfigPath() string {
 }
 
 func GetS3TempZstdPath() string {
-	dir := GetConfigDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, FileS3TempZstd)
+	return filepath.Join(os.TempDir(), "mico-backup.zst")
 }
 
 func GetLogPath() string {

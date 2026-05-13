@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/ray-d-song/mico/pkg/packer"
@@ -77,19 +78,28 @@ func resolveBucket() string {
 }
 
 func doBackup(ctx context.Context, bucketName string, containers string) error {
-	// 1. call packer.pack to create local archive
-	// 2. send archive to s3 using s3 client
-	// 3. delete local archive after successful upload
-	// 4. call cleanupOldBackups to remove old backups if retention is set
-
 	utils.PrintI("Packing containers...\n")
-	packer.Pack(ctx, packer.PackOptions{
-		OutputPath:    utils.GetS3TempZstdPath(),
+	outputPath := utils.GetS3TempZstdPath()
+	if err := packer.Pack(ctx, packer.PackOptions{
+		OutputPath:    outputPath,
 		Containers:    containers,
 		Incremental:   false,
 		Concurrent:    concurrent,
 		InspectConfig: inspectContainerConfig,
-	})
+	}); err != nil {
+		return fmt.Errorf("pack failed: %w", err)
+	}
+
+	utils.PrintI("Uploading to S3...\n")
+	// TODO: upload outputPath to S3, then os.Remove(outputPath)
+
+	if retention > 0 {
+		utils.PrintI("Cleaning up old backups...\n")
+		if err := cleanupOldBackups(ctx, bucketName, retention); err != nil {
+			utils.PrintW("cleanup failed: %v\n", err)
+		}
+	}
+
 	return nil
 }
 

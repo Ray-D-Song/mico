@@ -26,7 +26,7 @@ type PackOptions struct {
 	InspectConfig InspectConfig
 }
 
-func Pack(ctx context.Context, opts PackOptions) {
+func Pack(ctx context.Context, opts PackOptions) error {
 	if opts.OutputPath == "" {
 		timestamp := time.Now().Format("20060102150405")
 		opts.OutputPath = fmt.Sprintf("mico-%s.zstd", timestamp)
@@ -44,15 +44,13 @@ func Pack(ctx context.Context, opts PackOptions) {
 		utils.PrintI("Containers to pack: %v\n", names)
 		containerList, err = scanner.FilterContainersByNames(ctx, names)
 		if err != nil {
-			utils.PrintErrMsg(utils.ErrContainerScan, err)
-			return
+			return fmt.Errorf("failed to scan containers: %w", err)
 		}
 	} else {
 		utils.PrintI("Containers to pack: (all running containers)\n")
 		containerList, err = scanner.ScanRunningContainers(ctx)
 		if err != nil {
-			utils.PrintErrMsg(utils.ErrContainerScan, err)
-			return
+			return fmt.Errorf("failed to scan containers: %w", err)
 		}
 	}
 
@@ -60,7 +58,7 @@ func Pack(ctx context.Context, opts PackOptions) {
 
 	if len(containerList) == 0 {
 		utils.PrintW("No containers to pack\n")
-		return
+		return nil
 	}
 
 	utils.PrintI("Analyzing dependencies...\n")
@@ -77,8 +75,7 @@ func Pack(ctx context.Context, opts PackOptions) {
 	if opts.Incremental {
 		lastManifest, err = utils.LoadLastManifest()
 		if err != nil {
-			utils.PrintErrMsg(utils.ErrPackCreate, err)
-			return
+			return fmt.Errorf("failed to load last manifest: %w", err)
 		}
 		if lastManifest == nil {
 			utils.PrintW("No previous manifest found, doing full pack\n")
@@ -89,13 +86,12 @@ func Pack(ctx context.Context, opts PackOptions) {
 
 			changed, err := computeDiff(lastManifest.Manifest, containerList, opts.InspectConfig)
 			if err != nil {
-				utils.PrintErrMsg(utils.ErrPackCreate, err)
-				return
+				return fmt.Errorf("failed to compute diff: %w", err)
 			}
 
 			if len(changed) == 0 {
 				utils.PrintS("No changes detected, nothing to pack\n")
-				return
+				return nil
 			}
 
 			utils.PrintI("Changed containers: %v\n", changed)
@@ -163,31 +159,25 @@ func Pack(ctx context.Context, opts PackOptions) {
 	wg.Wait()
 
 	if saveErr != nil {
-		utils.PrintErrMsg(utils.ErrImageSave, saveErr)
-		return
+		return fmt.Errorf("failed to save images: %w", saveErr)
 	}
 	if inspectErr != nil {
-		utils.PrintErrMsg(utils.ErrContainerInspect, inspectErr)
-		return
+		return fmt.Errorf("failed to inspect containers: %w", inspectErr)
 	}
 	if volumeErr != nil {
-		utils.PrintErrMsg(utils.ErrVolumeBackup, volumeErr)
-		return
+		return fmt.Errorf("failed to backup volumes: %w", volumeErr)
 	}
 
 	utils.PrintI("Saving mount information...\n")
 	for _, name := range containerNames {
 		if _, err := inspector.SaveMounts(ctx, name); err != nil {
-			utils.PrintErrMsg(utils.ErrContainerInspect, err)
-			return
+			return fmt.Errorf("failed to save mounts for %s: %w", name, err)
 		}
 		if err := inspector.SaveHostConfig(ctx, name); err != nil {
-			utils.PrintErrMsg(utils.ErrContainerInspect, err)
-			return
+			return fmt.Errorf("failed to save host config for %s: %w", name, err)
 		}
 		if err := inspector.SaveNetworkSettings(ctx, name); err != nil {
-			utils.PrintErrMsg(utils.ErrContainerInspect, err)
-			return
+			return fmt.Errorf("failed to save network settings for %s: %w", name, err)
 		}
 	}
 
@@ -216,14 +206,12 @@ func Pack(ctx context.Context, opts PackOptions) {
 
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		utils.PrintErrMsg(utils.ErrPackCreate, err)
-		return
+		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
 
 	manifestPath := utils.ManifestPath(workDir)
 	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
-		utils.PrintErrMsg(utils.ErrPackCreate, err)
-		return
+		return fmt.Errorf("failed to write manifest: %w", err)
 	}
 
 	utils.PrintS("Saved images, configs, and volumes\n")
@@ -231,27 +219,25 @@ func Pack(ctx context.Context, opts PackOptions) {
 	utils.PrintI("Compressing...\n")
 	compressor := utils.NewZSTDCompressor()
 	if err := compressor.CompressDir(workDir, opts.OutputPath); err != nil {
-		utils.PrintErrMsg(utils.ErrPackCreate, err)
-		return
+		return fmt.Errorf("failed to compress: %w", err)
 	}
 	utils.PrintS("Compressed to: %s\n", opts.OutputPath)
 
 	utils.PrintI("Generating checksum...\n")
 	hash, err := utils.GenerateChecksumFile(opts.OutputPath)
 	if err != nil {
-		utils.PrintErrMsg(utils.ErrVerifyFailed, err)
-		return
+		return fmt.Errorf("failed to generate checksum: %w", err)
 	}
 	utils.PrintS("Checksum: %s\n", hash[:16]+"...")
 
 	if !opts.Incremental {
 		if err := utils.SaveLastManifest(hash, manifest); err != nil {
-			utils.PrintErrMsg(utils.ErrPackCreate, err)
-			return
+			return fmt.Errorf("failed to save last manifest: %w", err)
 		}
 	}
 
 	utils.PrintS("Pack completed successfully!\n")
+	return nil
 }
 
 func buildServices(depGraph deps.DepAnalysis, containers []container.Summary, configs map[string]*container.Config) []core.Service {

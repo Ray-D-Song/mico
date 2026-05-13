@@ -32,13 +32,15 @@ Examples:
 
 		fmt.Print(utils.Logo)
 
-		packer.Pack(ctx, packer.PackOptions{
+		if err := packer.Pack(ctx, packer.PackOptions{
 			OutputPath:    outputPath,
 			Containers:    containers,
 			Incremental:   incremental,
 			Concurrent:    concurrent,
 			InspectConfig: inspectContainerConfig,
-		})
+		}); err != nil {
+			utils.PrintE("%s\n", err.Error())
+		}
 	},
 }
 

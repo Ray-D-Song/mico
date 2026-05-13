@@ -16,6 +16,7 @@ const (
 const (
 	FileLastManifest = "last_manifest.json"
 	FileS3Ini        = "s3.ini"
+	FileS3TempZstd   = "s3_temp.zstd"
 	FileManifest     = "manifest.json"
 	FileImageTar     = "image.tar"
 	FileConfigJSON   = "config.json"
@@ -47,6 +48,14 @@ func GetS3ConfigPath() string {
 		return ""
 	}
 	return filepath.Join(dir, FileS3Ini)
+}
+
+func GetS3TempZstdPath() string {
+	dir := GetConfigDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, FileS3TempZstd)
 }
 
 func GetLogPath() string {

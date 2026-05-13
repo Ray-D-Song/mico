@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ray-d-song/mico/pkg/packer"
 	"github.com/ray-d-song/mico/pkg/s3"
 	"github.com/ray-d-song/mico/pkg/utils"
 	"github.com/spf13/cobra"
@@ -54,8 +55,8 @@ func runBackup(cmd *cobra.Command, args []string) {
 	}
 	ctx := cmd.Context()
 	for {
-		if err := doBackup(ctx, bucketName); err != nil {
-		utils.PrintE("%s\n", err.Error())
+		if err := doBackup(ctx, bucketName, containers); err != nil {
+			utils.PrintE("%s\n", err.Error())
 		}
 
 		if interval <= 0 {
@@ -75,10 +76,26 @@ func resolveBucket() string {
 	return "mico-backups"
 }
 
-func doBackup(ctx context.Context, bucketName string) error {
+func doBackup(ctx context.Context, bucketName string, containers string) error {
+	// 1. call packer.pack to create local archive
+	// 2. send archive to s3 using s3 client
+	// 3. delete local archive after successful upload
+	// 4. call cleanupOldBackups to remove old backups if retention is set
+
+	utils.PrintI("Packing containers...\n")
+	packer.Pack(ctx, packer.PackOptions{
+		OutputPath:    utils.GetS3TempZstdPath(),
+		Containers:    containers,
+		Incremental:   false,
+		Concurrent:    concurrent,
+		InspectConfig: inspectContainerConfig,
+	})
 	return nil
 }
 
 func cleanupOldBackups(ctx context.Context, bucketName string, keep int) error {
+	// 1. list objects in bucket with prefix "backup-"
+	// 2. sort by creation date, delete all but the most recent 'keep' objects
+
 	return nil
 }

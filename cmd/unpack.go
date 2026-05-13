@@ -728,6 +728,24 @@ func createContainers(workDir string) error {
 			continue
 		}
 
+		if networkData, err := os.ReadFile(utils.ServiceNetworkJSON(workDir, cName)); err == nil {
+			var netSettings struct {
+				Networks map[string]interface{} `json:"Networks"`
+			}
+			if err := json.Unmarshal(networkData, &netSettings); err == nil {
+				for networkName := range netSettings.Networks {
+					if networkName == "" || core.IsBuiltinNetwork(networkName) || core.IsLikelyNetworkID(networkName) || networkName == host.NetworkMode {
+						continue
+					}
+					if output, err := runContainer("network", "connect", networkName, cName); err != nil {
+						utils.PrintW("Failed to connect %s to network %s: %s\n", cName, networkName, strings.TrimSpace(string(output)))
+					} else {
+						utils.PrintS("Connected %s to network %s\n", cName, networkName)
+					}
+				}
+			}
+		}
+
 		utils.PrintS("Container created: %s\n", cName)
 	}
 

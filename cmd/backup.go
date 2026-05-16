@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ray-d-song/mico/pkg/packer"
@@ -135,21 +136,80 @@ func cleanupOldBackups(ctx context.Context, bucketName string, keep int) error {
 	if err != nil {
 		return fmt.Errorf("failed to list objects: %w", err)
 	}
-	if len(objects) <= keep {
+
+	groupsToDelete := selectBackupGroupsToDelete(objects, keep)
+	if len(groupsToDelete) == 0 {
 		utils.PrintI("No old backups to clean up\n")
 		return nil
 	}
 
-	sort.Slice(objects, func(i, j int) bool {
-		return objects[i].LastModified.After(objects[j].LastModified)
-	})
-
-	for _, obj := range objects[keep:] {
-		if err := s3.DeleteObject(ctx, bucketName, obj.Key); err != nil {
-			return fmt.Errorf("failed to delete %s: %w", obj.Key, err)
+	for _, group := range groupsToDelete {
+		utils.PrintI("Deleting backup: %s\n", group.prefix)
+		for _, key := range group.keys {
+			if err := s3.DeleteObject(ctx, bucketName, key); err != nil {
+				return fmt.Errorf("failed to delete %s: %w", key, err)
+			}
 		}
 	}
 
 	utils.PrintI("Cleanup completed\n")
 	return nil
+}
+
+type backupGroup struct {
+	prefix       string
+	lastModified time.Time
+	keys         []string
+}
+
+func selectBackupGroupsToDelete(objects []s3.ObjectInfo, keep int) []backupGroup {
+	if keep <= 0 || len(objects) == 0 {
+		return nil
+	}
+
+	groups := make(map[string]*backupGroup)
+	for _, obj := range objects {
+		prefix, ok := backupGroupPrefix(obj.Key)
+		if !ok {
+			continue
+		}
+
+		group := groups[prefix]
+		if group == nil {
+			group = &backupGroup{prefix: prefix}
+			groups[prefix] = group
+		}
+		if obj.LastModified.After(group.lastModified) {
+			group.lastModified = obj.LastModified
+		}
+		group.keys = append(group.keys, obj.Key)
+	}
+
+	if len(groups) <= keep {
+		return nil
+	}
+
+	orderedGroups := make([]backupGroup, 0, len(groups))
+	for _, group := range groups {
+		sort.Strings(group.keys)
+		orderedGroups = append(orderedGroups, *group)
+	}
+
+	sort.Slice(orderedGroups, func(i, j int) bool {
+		if orderedGroups[i].lastModified.Equal(orderedGroups[j].lastModified) {
+			return orderedGroups[i].prefix > orderedGroups[j].prefix
+		}
+		return orderedGroups[i].lastModified.After(orderedGroups[j].lastModified)
+	})
+
+	return orderedGroups[keep:]
+}
+
+func backupGroupPrefix(key string) (string, bool) {
+	parts := strings.Split(key, "/")
+	if len(parts) < 5 || !strings.HasPrefix(parts[0], "backup-") {
+		return "", false
+	}
+
+	return strings.Join(parts[:4], "/"), true
 }

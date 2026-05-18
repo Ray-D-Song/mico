@@ -78,6 +78,53 @@ func TestSelectBackupGroupsToDeleteIgnoresNonBackupKeys(t *testing.T) {
 	require.Empty(t, groupsToDelete)
 }
 
+func TestSelectBackupGroupsToDeleteFromVersionsIncludesHiddenGroups(t *testing.T) {
+	base := time.Date(2026, 5, 16, 15, 0, 0, 0, time.UTC)
+	versions := []s3.ObjectVersionInfo{
+		{
+			Key:          "backup-2026/05/16/150000/mico-backup.zst",
+			VersionID:    "v1",
+			LastModified: base,
+		},
+		{
+			Key:          "backup-2026/05/16/150000/mico-backup.zst",
+			VersionID:    "v2",
+			IsDeleteMark: true,
+			LastModified: base.Add(1 * time.Second),
+		},
+		{
+			Key:          "backup-2026/05/16/150000/mico-backup.zst.sha256",
+			VersionID:    "v3",
+			LastModified: base.Add(2 * time.Second),
+		},
+		{
+			Key:          "backup-2026/05/16/150000/mico-backup.zst.sha256",
+			VersionID:    "v4",
+			IsDeleteMark: true,
+			LastModified: base.Add(3 * time.Second),
+		},
+		{
+			Key:          "backup-2026/05/16/160000/mico-backup.zst",
+			VersionID:    "v5",
+			LastModified: base.Add(1 * time.Hour),
+		},
+		{
+			Key:          "backup-2026/05/16/160000/mico-backup.zst.sha256",
+			VersionID:    "v6",
+			LastModified: base.Add(1*time.Hour + 1*time.Second),
+		},
+	}
+
+	groupsToDelete := selectBackupGroupsToDeleteFromVersions(versions, 1)
+
+	require.Len(t, groupsToDelete, 1)
+	require.Equal(t, "backup-2026/05/16/150000", groupsToDelete[0].prefix)
+	require.Equal(t, []string{
+		"backup-2026/05/16/150000/mico-backup.zst",
+		"backup-2026/05/16/150000/mico-backup.zst.sha256",
+	}, groupsToDelete[0].keys)
+}
+
 func TestBackupGroupPrefix(t *testing.T) {
 	prefix, ok := backupGroupPrefix("backup-2026/05/16/152302/mico-backup.zst.sha256")
 	require.True(t, ok)

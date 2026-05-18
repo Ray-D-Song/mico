@@ -146,12 +146,10 @@ func doBackup(ctx context.Context, bucketName string, containers string) error {
 }
 
 func cleanupOldBackups(ctx context.Context, bucketName string, keep int) error {
-	objects, err := s3.ListObjects(ctx, bucketName, "backup-", 1000)
+	groupsToDelete, err := listBackupGroupsToDelete(ctx, bucketName, keep)
 	if err != nil {
-		return fmt.Errorf("failed to list objects: %w", err)
+		return err
 	}
-
-	groupsToDelete := selectBackupGroupsToDelete(objects, keep)
 	if len(groupsToDelete) == 0 {
 		utils.PrintI("No old backups to clean up\n")
 		return nil
@@ -170,20 +168,57 @@ func cleanupOldBackups(ctx context.Context, bucketName string, keep int) error {
 	return nil
 }
 
+func listBackupGroupsToDelete(ctx context.Context, bucketName string, keep int) ([]backupGroup, error) {
+	if s3.IsBucketVersioningEnabled() {
+		versions, err := s3.ListObjectVersions(ctx, bucketName, "backup-", 1000)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list object versions: %w", err)
+		}
+		return selectBackupGroupsToDeleteFromVersions(versions, keep), nil
+	}
+
+	objects, err := s3.ListObjects(ctx, bucketName, "backup-", 1000)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list objects: %w", err)
+	}
+	return selectBackupGroupsToDelete(objects, keep), nil
+}
+
 type backupGroup struct {
 	prefix       string
 	lastModified time.Time
 	keys         []string
 }
 
+type backupListItem struct {
+	key          string
+	lastModified time.Time
+}
+
 func selectBackupGroupsToDelete(objects []s3.ObjectInfo, keep int) []backupGroup {
+	items := make([]backupListItem, 0, len(objects))
+	for _, obj := range objects {
+		items = append(items, backupListItem{key: obj.Key, lastModified: obj.LastModified})
+	}
+	return selectBackupGroupsToDeleteFromItems(items, keep)
+}
+
+func selectBackupGroupsToDeleteFromVersions(objects []s3.ObjectVersionInfo, keep int) []backupGroup {
+	items := make([]backupListItem, 0, len(objects))
+	for _, obj := range objects {
+		items = append(items, backupListItem{key: obj.Key, lastModified: obj.LastModified})
+	}
+	return selectBackupGroupsToDeleteFromItems(items, keep)
+}
+
+func selectBackupGroupsToDeleteFromItems(objects []backupListItem, keep int) []backupGroup {
 	if keep <= 0 || len(objects) == 0 {
 		return nil
 	}
 
 	groups := make(map[string]*backupGroup)
 	for _, obj := range objects {
-		prefix, ok := backupGroupPrefix(obj.Key)
+		prefix, ok := backupGroupPrefix(obj.key)
 		if !ok {
 			continue
 		}
@@ -193,10 +228,10 @@ func selectBackupGroupsToDelete(objects []s3.ObjectInfo, keep int) []backupGroup
 			group = &backupGroup{prefix: prefix}
 			groups[prefix] = group
 		}
-		if obj.LastModified.After(group.lastModified) {
-			group.lastModified = obj.LastModified
+		if obj.lastModified.After(group.lastModified) {
+			group.lastModified = obj.lastModified
 		}
-		group.keys = append(group.keys, obj.Key)
+		group.keys = append(group.keys, obj.key)
 	}
 
 	if len(groups) <= keep {
@@ -205,7 +240,7 @@ func selectBackupGroupsToDelete(objects []s3.ObjectInfo, keep int) []backupGroup
 
 	orderedGroups := make([]backupGroup, 0, len(groups))
 	for _, group := range groups {
-		sort.Strings(group.keys)
+		group.keys = uniqueSortedStrings(group.keys)
 		orderedGroups = append(orderedGroups, *group)
 	}
 
@@ -217,6 +252,24 @@ func selectBackupGroupsToDelete(objects []s3.ObjectInfo, keep int) []backupGroup
 	})
 
 	return orderedGroups[keep:]
+}
+
+func uniqueSortedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func deleteBackupObject(ctx context.Context, bucketName, key string) error {

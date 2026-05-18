@@ -21,6 +21,11 @@ var (
 	retention int
 )
 
+var (
+	deleteObjectFn            = s3.DeleteObject
+	deleteAllObjectVersionsFn = s3.DeleteAllObjectVersions
+)
+
 var backupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Pack containers and upload to S3",
@@ -59,6 +64,11 @@ func runBackup(cmd *cobra.Command, args []string) {
 		return
 	}
 	ctx := cmd.Context()
+
+	if err := s3.DetectBucketVersioning(ctx, bucketName); err != nil {
+		utils.PrintW("failed to detect bucket versioning for %s: %v\n", bucketName, err)
+	}
+
 	for {
 		if err := doBackup(ctx, bucketName, containers); err != nil {
 			utils.PrintE("%s\n", err.Error())
@@ -146,7 +156,7 @@ func cleanupOldBackups(ctx context.Context, bucketName string, keep int) error {
 	for _, group := range groupsToDelete {
 		utils.PrintI("Deleting backup: %s\n", group.prefix)
 		for _, key := range group.keys {
-			if err := s3.DeleteObject(ctx, bucketName, key); err != nil {
+			if err := deleteBackupObject(ctx, bucketName, key); err != nil {
 				return fmt.Errorf("failed to delete %s: %w", key, err)
 			}
 		}
@@ -203,6 +213,13 @@ func selectBackupGroupsToDelete(objects []s3.ObjectInfo, keep int) []backupGroup
 	})
 
 	return orderedGroups[keep:]
+}
+
+func deleteBackupObject(ctx context.Context, bucketName, key string) error {
+	if s3.IsBucketVersioningEnabled() {
+		return deleteAllObjectVersionsFn(ctx, bucketName, key)
+	}
+	return deleteObjectFn(ctx, bucketName, key)
 }
 
 func backupGroupPrefix(key string) (string, bool) {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -87,4 +88,52 @@ func TestBackupGroupPrefix(t *testing.T) {
 
 	_, ok = backupGroupPrefix("notes/backup-2026.txt")
 	require.False(t, ok)
+}
+
+func TestDeleteBackupObjectUsesVersionedPathWhenEnabled(t *testing.T) {
+	origDeleteObject := deleteObjectFn
+	origDeleteAllObjectVersions := deleteAllObjectVersionsFn
+	t.Cleanup(func() {
+		deleteObjectFn = origDeleteObject
+		deleteAllObjectVersionsFn = origDeleteAllObjectVersions
+		s3.SetBucketVersioningEnabled(false)
+	})
+
+	calledVersioned := false
+	deleteObjectFn = func(context.Context, string, string) error {
+		t.Fatal("unexpected non-versioned delete path")
+		return nil
+	}
+	deleteAllObjectVersionsFn = func(context.Context, string, string) error {
+		calledVersioned = true
+		return nil
+	}
+
+	s3.SetBucketVersioningEnabled(true)
+	require.NoError(t, deleteBackupObject(context.Background(), "bucket", "key"))
+	require.True(t, calledVersioned)
+}
+
+func TestDeleteBackupObjectUsesNonVersionedPathWhenDisabled(t *testing.T) {
+	origDeleteObject := deleteObjectFn
+	origDeleteAllObjectVersions := deleteAllObjectVersionsFn
+	t.Cleanup(func() {
+		deleteObjectFn = origDeleteObject
+		deleteAllObjectVersionsFn = origDeleteAllObjectVersions
+		s3.SetBucketVersioningEnabled(false)
+	})
+
+	calledNonVersioned := false
+	deleteObjectFn = func(context.Context, string, string) error {
+		calledNonVersioned = true
+		return nil
+	}
+	deleteAllObjectVersionsFn = func(context.Context, string, string) error {
+		t.Fatal("unexpected versioned delete path")
+		return nil
+	}
+
+	s3.SetBucketVersioningEnabled(false)
+	require.NoError(t, deleteBackupObject(context.Background(), "bucket", "key"))
+	require.True(t, calledNonVersioned)
 }

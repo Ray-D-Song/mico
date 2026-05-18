@@ -67,6 +67,10 @@ func runBackup(cmd *cobra.Command, args []string) {
 
 	if err := s3.DetectBucketVersioning(ctx, bucketName); err != nil {
 		utils.PrintW("failed to detect bucket versioning for %s: %v\n", bucketName, err)
+	} else if s3.IsBucketVersioningEnabled() {
+		utils.PrintI("bucket %s is versioned\n", bucketName)
+	} else {
+		utils.PrintI("bucket %s is non-versioned\n", bucketName)
 	}
 
 	for {

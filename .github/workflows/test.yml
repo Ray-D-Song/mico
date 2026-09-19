@@ -28,4 +28,4 @@ jobs:
       - name: Verify Docker daemon
         run: docker info
       - name: Pack and unpack round trip
-        run: make e2e
+        run: sudo env DOCKER_HOST="$DOCKER_HOST" make e2e

@@ -44,6 +44,16 @@ func Binary() string {
 }
 
 func detectRuntime() Info {
+	if host := os.Getenv("DOCKER_HOST"); host != "" {
+		runtimeType := Docker
+		binary := "docker"
+		if strings.Contains(host, "podman") {
+			runtimeType = Podman
+			binary = "podman"
+		}
+		return Info{Type: runtimeType, Binary: binary}
+	}
+
 	// Check for rootless Podman socket
 	uid := os.Getuid()
 	rootlessSocket := "/run/user/" + strconv.Itoa(uid) + "/podman/podman.sock"

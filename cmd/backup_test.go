@@ -2,12 +2,62 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ray-d-song/mico/pkg/packer"
 	"github.com/ray-d-song/mico/pkg/s3"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRemoveBackupTempFilesIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "mico-backup.zst")
+	checksum := archive + ".sha256"
+	for _, path := range []string{archive, checksum} {
+		if err := os.WriteFile(path, []byte("temporary"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	removeBackupTempFiles(archive, checksum)
+	removeBackupTempFiles(archive, checksum)
+	for _, path := range []string{archive, checksum} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("temporary file still exists: %s", path)
+		}
+	}
+}
+
+func TestDoBackupCleansTempFilesWhenPackFails(t *testing.T) {
+	originalPackFn := packFn
+	t.Cleanup(func() { packFn = originalPackFn })
+
+	packFn = func(_ context.Context, opts packer.PackOptions) error {
+		for _, path := range []string{opts.OutputPath, opts.OutputPath + ".sha256"} {
+			if err := os.WriteFile(path, []byte("temporary"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return errors.New("simulated pack failure")
+	}
+
+	err := doBackup(context.Background(), "unused", "")
+	if err == nil {
+		t.Fatal("expected pack failure")
+	}
+	for _, path := range []string{
+		filepath.Join(os.TempDir(), "mico-backup.zst"),
+		filepath.Join(os.TempDir(), "mico-backup.zst.sha256"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("temporary file still exists after pack failure: %s", path)
+		}
+	}
+}
 
 func TestSelectBackupGroupsToDeleteKeepsWholeBackupGroups(t *testing.T) {
 	base := time.Date(2026, 5, 16, 15, 0, 0, 0, time.UTC)

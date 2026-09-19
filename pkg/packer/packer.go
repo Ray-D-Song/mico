@@ -82,6 +82,7 @@ func Pack(ctx context.Context, opts PackOptions) error {
 			opts.Incremental = false
 		} else {
 			workDir = utils.CreateWorkDir("mico-incr")
+			defer utils.RemoveWorkDir(workDir)
 			utils.PrintI("Work directory: %s\n", workDir)
 
 			changed, err := computeDiff(lastManifest.Manifest, containerList, opts.InspectConfig)
@@ -110,6 +111,7 @@ func Pack(ctx context.Context, opts PackOptions) error {
 
 	if !opts.Incremental {
 		workDir = utils.CreateWorkDir("mico")
+		defer utils.RemoveWorkDir(workDir)
 		utils.PrintI("Work directory: %s\n", workDir)
 		needPackContainers = containerList
 		containerNames = make([]string, len(containerList))

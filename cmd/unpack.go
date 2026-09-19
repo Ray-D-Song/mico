@@ -24,14 +24,14 @@ import (
 )
 
 var (
-	skipVerify bool
-	forceRestore   bool
-	s3Mode         bool
-	s3Bucket       string
-	s3Key          string
-	s3List         bool
-	loadImage      = docker.LoadImage
-	runContainer   = func(args ...string) ([]byte, error) {
+	skipVerify   bool
+	forceRestore bool
+	s3Mode       bool
+	s3Bucket     string
+	s3Key        string
+	s3List       bool
+	loadImage    = docker.LoadImage
+	runContainer = func(args ...string) ([]byte, error) {
 		return exec.Command(runtime.Binary(), args...).CombinedOutput()
 	}
 )
@@ -148,6 +148,7 @@ Examples:
 		}
 
 		workDir := utils.CreateWorkDir("mico-unpack")
+		defer utils.RemoveWorkDir(workDir)
 		utils.PrintI("Work directory: %s\n", workDir)
 
 		utils.PrintI("Decompressing...\n")

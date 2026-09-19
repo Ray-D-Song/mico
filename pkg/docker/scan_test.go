@@ -2,13 +2,21 @@ package docker
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func init() {
-	InitializeClient()
+func TestMain(m *testing.M) {
+	if err := InitializeClient(); err != nil {
+		fmt.Fprintf(os.Stderr, "Docker daemon required for pkg/docker tests: %v\n", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = CloseClient()
+	os.Exit(code)
 }
 
 func TestNewScanner(t *testing.T) {

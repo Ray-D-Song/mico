@@ -24,6 +24,7 @@ var (
 var (
 	deleteObjectFn            = s3.DeleteObject
 	deleteAllObjectVersionsFn = s3.DeleteAllObjectVersions
+	packFn                    = packer.Pack
 )
 
 var backupCmd = &cobra.Command{
@@ -99,7 +100,9 @@ func doBackup(ctx context.Context, bucketName string, containers string) error {
 	utils.PrintI("Packing containers...\n")
 	// Generate temporary zstd file
 	outputPath := utils.GetS3TempZstdPath()
-	if err := packer.Pack(ctx, packer.PackOptions{
+	checksumPath := outputPath + ".sha256"
+	defer removeBackupTempFiles(outputPath, checksumPath)
+	if err := packFn(ctx, packer.PackOptions{
 		OutputPath:    outputPath,
 		Containers:    containers,
 		Incremental:   false,
@@ -119,19 +122,11 @@ func doBackup(ctx context.Context, bucketName string, containers string) error {
 	}
 	utils.PrintS("Uploaded: %s\n", packKey)
 
-	checksumPath := outputPath + ".sha256"
 	if utils.FileExists(checksumPath) {
 		checksumKey := packKey + ".sha256"
 		if err := s3.UploadFile(ctx, bucketName, checksumKey, checksumPath); err != nil {
 			utils.PrintW("failed to upload checksum: %v\n", err)
 		}
-	}
-
-	if err := os.Remove(outputPath); err != nil {
-		utils.PrintW("failed to remove temp file: %v\n", err)
-	}
-	if err := os.Remove(checksumPath); err != nil && !os.IsNotExist(err) {
-		utils.PrintW("failed to remove temp checksum: %v\n", err)
 	}
 
 	// Clean up old backups if retention is set
@@ -143,6 +138,17 @@ func doBackup(ctx context.Context, bucketName string, containers string) error {
 	}
 
 	return nil
+}
+
+func removeBackupTempFiles(paths ...string) {
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			utils.PrintW("failed to remove temp file %s: %v\n", path, err)
+		}
+	}
 }
 
 func cleanupOldBackups(ctx context.Context, bucketName string, keep int) error {

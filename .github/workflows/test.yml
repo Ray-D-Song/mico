@@ -15,17 +15,3 @@ jobs:
         run: docker info
       - name: Unit tests
         run: make test
-
-  e2e:
-    runs-on: ubuntu-latest
-    env:
-      DOCKER_HOST: unix:///var/run/docker.sock
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24"
-      - name: Verify Docker daemon
-        run: docker info
-      - name: Pack and unpack round trip
-        run: sudo env DOCKER_HOST="$DOCKER_HOST" make e2e

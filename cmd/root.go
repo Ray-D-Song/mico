@@ -37,7 +37,7 @@ func elevateIfNeeded(cmd *cobra.Command, args []string) {
 
 	exe, _ := os.Executable()
 	// Preserve HOME so Docker SDK can find the user's config
-	sudoArgs := append([]string{"--preserve-env=HOME", exe}, os.Args[1:]...)
+	sudoArgs := append([]string{"--preserve-env=HOME,DOCKER_HOST", exe}, os.Args[1:]...)
 
 	sudoCmd := exec.Command("sudo", sudoArgs...)
 	sudoCmd.Stdin = os.Stdin
